@@ -1,0 +1,60 @@
+name: Cerebro beta checks and publication
+
+on:
+  pull_request:
+  push:
+    branches: [integration-mlx-dj]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python -m pip install -r requirements-beta.txt pytest
+      - run: python -m pip check
+      - run: python install.py --target portable-smoke --no-venv
+      - run: python -m cerebro_cli doctor --offline --json
+        working-directory: portable-smoke
+      - run: python -m pytest -q
+      - run: node --test composer_audio.test.mjs
+
+  publish:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/integration-mlx-dj'
+    needs: checks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m cerebro_release.packager
+      - name: Publish beta if the version has no release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(tr -d '\r\n' < VERSION)
+          case "$version" in
+            *-beta.*) ;;
+            *) echo 'This workflow publishes beta versions only' >&2; exit 1 ;;
+          esac
+          if gh release view "v$version" >/dev/null 2>&1; then
+            exit 0
+          fi
+          gh release create "v$version" "dist/Cerebro-$version-universal.zip" "dist/Cerebro-$version-patch.zip" dist/SHA256SUMS.txt \
+            --prerelease --target "$GITHUB_SHA" --title "Cerebro OS $version" --notes-file docs/RELEASE_NOTES.md

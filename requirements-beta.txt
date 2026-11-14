@@ -1,0 +1,20 @@
+# Cerebro 1.5 beta: núcleo portable y aislado.
+# No instala un modelo ni abre servicios de red.
+aiohttp>=3.9,<4
+fastapi>=0.115,<1
+flask>=3.0,<4
+pydantic>=2.7,<3
+python-telegram-bot>=21,<23
+requests>=2.31,<3
+uvicorn>=0.30,<1
+watchdog>=4,<7
+# Dependencias importadas por los módulos actuales del núcleo portable.
+httpx>=0.27,<1
+psutil>=5.9,<8
+rich>=13,<15
+numpy>=1.26,<3
+pyarrow>=18,<25
+lancedb>=0.20,<1
+
+# Versiones congeladas del núcleo portable.
+-c requirements-beta-constraints.txt
