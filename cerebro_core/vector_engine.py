@@ -110,23 +110,12 @@ class _EmbeddingBackend:
         if not texts:
             return []
 
-        # 1. Motor primario unificado: Ollama bge-m3 en GPU Metal
+        # Never switch embedding spaces on failure: the persistent index may
+        # already contain bge-m3 vectors, and E5 is not compatible with them.
         ollama_vecs = self._encode_ollama(texts)
         if ollama_vecs and all(v is not None for v in ollama_vecs):
             return [v for v in ollama_vecs]
-
-        # 2. Fallback nativo SentenceTransformer si Ollama no está disponible
-        if time.time() >= self._native_broken_until:
-            try:
-                with self._lock:
-                    model = self._load()
-                    vecs = model.encode(texts, batch_size=8, normalize_embeddings=True, show_progress_bar=False)
-                    self._last_used = time.time()
-                    self._schedule_unload()
-                return [v.tolist() for v in vecs]
-            except Exception as exc:
-                self._native_broken_until = time.time() + 300
-                logger.error("[VectorEngine] Embedding nativo falló (%s); usando fallback Ollama.", exc)
+        logger.warning("[VectorEngine] bge-m3 no disponible; no se usa otro modelo de embeddings.")
         return ollama_vecs
 
 
