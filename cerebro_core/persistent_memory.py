@@ -265,6 +265,13 @@ class PersistentMemoryStore:
             return []
 
         results = self.vector_engine.search(text=query_clean, limit=limit)
+        if not results:
+            # Preserve access to stored text when the embedding service is offline.
+            # The label prevents lexical matches being mistaken for vector scores.
+            return [{"id": row["id"], "text": row["text"], "source": row["source"],
+                     "score": None, "created_at": row["created_at"],
+                     "retrieval_method": "lexical"}
+                    for row in self._bm25_search(query_clean, limit=limit)]
         
         memories = []
         for r in results:
