@@ -29,6 +29,10 @@ def test_all_sqlite_handles_are_closed_after_operations():
             entry = store.remember('Prueba de memoria y cierre')
             assert store.list_recent()[0]['id'] == entry['id']
             assert store._bm25_search('memoria')
+            results = store.search('memoria')
+            assert results[0]['id'] == entry['id']
+            assert results[0]['retrieval_method'] == 'lexical'
+            assert results[0]['score'] is None
             assert store.delete(entry['id'])
             assert opened and all(connection.closed_by_store for connection in opened)
             store.database_path.unlink()
