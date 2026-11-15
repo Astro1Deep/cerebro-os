@@ -8,12 +8,14 @@ local retrieval by the chat client.
 
 from __future__ import annotations
 
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from html.parser import HTMLParser
 import hashlib
 import ipaddress
 import json
+import logging
 from pathlib import Path
 import re
 import socket
@@ -26,6 +28,8 @@ from urllib.parse import urljoin, urlsplit, urlunsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 from urllib import robotparser
 
+
+logger = logging.getLogger(__name__)
 
 USER_AGENT: Final[str] = "CerebroResearch/1.0 (+local-first; explicit-user-request)"
 ALLOWED_SCHEMES: Final[frozenset[str]] = frozenset({"http", "https"})
@@ -266,7 +270,7 @@ class WebKnowledgeStore:
         return connection
 
     def _initialise(self) -> None:
-        with self._connect() as connection:
+        with closing(self._connect()) as connection, connection:
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS documents (
@@ -300,7 +304,7 @@ class WebKnowledgeStore:
             raise WebKnowledgeError("la página no contiene texto indexable")
         digest = hashlib.sha256(clean_text.encode("utf-8")).hexdigest()
         identifier = hashlib.sha256(f"{url}\n{digest}\n{fetched_at:.6f}".encode("utf-8")).hexdigest()[:16]
-        with self._connect() as connection:
+        with closing(self._connect()) as connection, connection:
             connection.execute(
                 "INSERT INTO documents(id, status, url, title, text, sha256, fetched_at, approved_at) VALUES (?, 'pending', ?, ?, ?, ?, ?, NULL)",
                 (identifier, url, title.strip()[:512], clean_text, digest, fetched_at),
@@ -319,11 +323,11 @@ class WebKnowledgeStore:
             parameters = (status,)
         query += " ORDER BY fetched_at DESC LIMIT ?"
         parameters += (limit,)
-        with self._connect() as connection:
+        with closing(self._connect()) as connection, connection:
             return [dict(row) for row in connection.execute(query, parameters)]
 
     def get_document(self, identifier: str) -> dict[str, object]:
-        with self._connect() as connection:
+        with closing(self._connect()) as connection, connection:
             row = connection.execute(
                 "SELECT id, status, url, title, text, sha256, fetched_at, approved_at FROM documents WHERE id = ?", (identifier,)
             ).fetchone()
@@ -336,7 +340,7 @@ class WebKnowledgeStore:
         if record["status"] == "approved":
             return record
         timestamp = datetime.now(timezone.utc).timestamp() if approved_at is None else approved_at
-        with self._connect() as connection:
+        with closing(self._connect()) as connection, connection:
             connection.execute("UPDATE documents SET status = 'approved', approved_at = ? WHERE id = ?", (timestamp, identifier))
             connection.execute(
                 "INSERT INTO document_search(id, title, text) VALUES (?, ?, ?)",
@@ -374,7 +378,7 @@ class WebKnowledgeStore:
 
         # 1. Búsqueda léxica SQLite FTS5 (local, rápida y determinista)
         fts = self._fts_query(query)
-        with self._connect() as connection:
+        with closing(self._connect()) as connection, connection:
             if fts:
                 try:
                     rows = connection.execute(
@@ -402,7 +406,7 @@ class WebKnowledgeStore:
                 engine = VectorEngine(root=lancedb_root)
                 vec_results = engine.search(text=query, limit=limit)
                 if vec_results:
-                    with self._connect() as connection:
+                    with closing(self._connect()) as connection, connection:
                         for r in vec_results:
                             doc_id = r.get("id")
                             if doc_id and doc_id not in seen_ids:
