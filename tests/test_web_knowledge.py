@@ -3,6 +3,7 @@ import sys
 import tempfile
 import unittest
 import stat
+from unittest.mock import patch
 from pathlib import Path
 
 
@@ -12,6 +13,19 @@ if str(PAYLOAD) not in sys.path:
 
 
 class WebKnowledgeTests(unittest.TestCase):
+
+    def test_database_connections_close_and_vector_failure_keeps_lexical_search(self):
+        from cerebro_core.web_knowledge import WebKnowledgeStore
+        with tempfile.TemporaryDirectory() as directory:
+            with patch('cerebro_core.web_knowledge.VectorEngine', side_effect=RuntimeError('offline')):
+                store = WebKnowledgeStore(Path(directory))
+                doc = store.record_pending(url='https://example.com/', title='Harmony',
+                                           text='Cadence resolves the dominant.', fetched_at=1.0)
+                store.approve(doc)
+                self.assertEqual(store.search('cadence')[0]['id'], doc)
+                self.assertEqual(store.search('unmatched'), [])
+            store.database_path.unlink()
+
 
     def test_public_url_validation_rejects_local_and_credentialed_targets(self):
         from cerebro_core.web_knowledge import UnsafeWebTarget, validate_public_url
