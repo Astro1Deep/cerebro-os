@@ -134,13 +134,15 @@ _BACKEND = _EmbeddingBackend()
 
 
 def _fit_dim(vector: Optional[list[float]]) -> Optional[list[float]]:
-    if not vector:
+    if vector is None or len(vector) != EMBED_DIM:
         return None
-    if len(vector) > EMBED_DIM:
-        return vector[:EMBED_DIM]
-    if len(vector) < EMBED_DIM:
-        return vector + [0.0] * (EMBED_DIM - len(vector))
-    return vector
+    try:
+        values = np.asarray(vector, dtype=np.float32)
+        if values.shape != (EMBED_DIM,) or not np.isfinite(values).all() or not np.any(values):
+            return None
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return values.tolist()
 
 
 class FaissHotCache:
@@ -326,8 +328,8 @@ class VectorEngine:
             
         if vector is None and text:
             vector = self.get_embedding(text)
-            
-        if not vector or len(vector) != 1024:
+        vector = _fit_dim(vector)
+        if vector is None:
             return False
             
         table = self.get_table(table_name)
@@ -345,39 +347,35 @@ class VectorEngine:
             if json_meta:
                 record["metadata_json"] = json.dumps(json_meta, ensure_ascii=False)
 
-        clean_id = str(doc_id).replace("'", "''")
         try:
-            table.delete(f"id = '{clean_id}'")
-        except Exception:
-            pass
-
-        try:
-            table.add([record])
-            self.hot_cache.add(
-                str(doc_id),
-                vector,
-                {
-                    "id": str(doc_id),
-                    "text": text or "",
-                    "source": record["source"],
-                    "created_at": record["created_at"],
-                    "metadata": json_meta if metadata else {}
-                }
-            )
-            return True
+            # A single merge avoids deleting the old record before its replacement
+            # has been committed. Unsupported backends fail without that deletion.
+            (table.merge_insert("id").when_matched_update_all()
+             .when_not_matched_insert_all().execute([record]))
         except Exception as exc:
             logger.error("[VectorEngine] Failed to add record %s: %s", doc_id, exc)
             return False
+        if table_name is None or table_name == self.default_table:
+            try:
+                self.hot_cache.add(str(doc_id), vector, {
+                    "id": str(doc_id), "text": text or "", "source": record["source"],
+                    "created_at": record["created_at"],
+                    "metadata": json_meta if metadata else {},
+                })
+            except Exception as exc:
+                logger.warning("[VectorEngine] Cache update failed: %s", exc)
+        return True
 
     def search(self, vector: Optional[list[float]] = None, text: Optional[str] = None, limit: int = 5, table_name: Optional[str] = None) -> list[dict[str, Any]]:
         if vector is None and text:
             vector = self.get_embedding(text)
-            
-        if not vector or len(vector) != 1024:
+        vector = _fit_dim(vector)
+        if vector is None:
             return []
 
         # 1. Búsqueda L1 Hot-Cache FAISS (~0.05ms)
-        hot_results = self.hot_cache.search(vector, top_k=limit * 2)
+        hot_results = (self.hot_cache.search(vector, top_k=limit * 2)
+                       if table_name is None or table_name == self.default_table else [])
             
         # 2. Búsqueda L2 persistente LanceDB
         table = self.get_table(table_name)
@@ -418,10 +416,11 @@ class VectorEngine:
     def delete(self, doc_id: str, table_name: Optional[str] = None) -> bool:
         if not doc_id: return False
         clean_id = str(doc_id).replace("'", "''")
-        self.hot_cache.remove(str(doc_id))
         table = self.get_table(table_name)
         try:
             table.delete(f"id = '{clean_id}'")
+            if table_name is None or table_name == self.default_table:
+                self.hot_cache.remove(str(doc_id))
             return True
         except Exception:
             return False
