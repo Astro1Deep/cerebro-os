@@ -11,7 +11,7 @@ from auto_doctor import build_report as build_doctor_report
 from auto_doctor import exit_code_for_report, print_human as print_doctor_report
 from cerebro_core.access_control import RemoteAccessPolicy, save_remote_access_policy
 from cerebro_core.branding import play_welcome_motion, render_welcome, render_welcome_ansi, terminal_supports_ansi
-from cerebro_core.capabilities import build_capability_report
+from cerebro_core.capabilities import build_capability_report, probe_ollama_loaded_models
 from cerebro_core.commercial_research import EvidenceProposalBoard
 from cerebro_core.hermes import inspect_hermes
 from cerebro_core.profiles import list_profiles
@@ -39,6 +39,7 @@ def _build_parser() -> argparse.ArgumentParser:
     status.add_argument("--json", action="store_true", help="Emitir JSON estable")
     capabilities = subcommands.add_parser("capabilities", help="Detectar capacidades sin modificar el equipo")
     capabilities.add_argument("--json", action="store_true", help="Emitir JSON estable")
+    capabilities.add_argument("--probe-ollama", action="store_true", help="Consultar modelos cargados en Ollama local sin iniciar modelos")
     skill = subcommands.add_parser("skill", help="Inspeccionar skills declarativas")
     skill_commands = skill.add_subparsers(dest="skill_command", required=True)
     skill_list = skill_commands.add_parser("list", help="Listar skills sin ejecutarlas")
@@ -192,11 +193,15 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "capabilities":
         report = build_capability_report()
+        if args.probe_ollama:
+            report["ollama_probe"] = probe_ollama_loaded_models()
         if args.json:
             print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
         else:
             print(f"Plataforma: {report['platform']} ({report['architecture']})")
             print(f"Motor preferente: {report['engine_policy']['primary']}")
+            if args.probe_ollama:
+                print(json.dumps(report["ollama_probe"], ensure_ascii=False, indent=2))
         return 0
     if args.command == "skill" and args.skill_command == "list":
         report = {"skills": list_skill_manifests(args.skills_dir)}
