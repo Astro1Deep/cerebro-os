@@ -1,0 +1,1768 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cerebro - Asistente de Composición</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <style>
+        :root {
+            color-scheme: dark;
+            --bg: #090d12;
+            --panel: #111923;
+            --panel-2: #182331;
+            --cyan: #00d2ff;
+            --green: #42f5a7;
+            --completion: #ff9d5c;
+            --transition: #ae9cff;
+            --red: #ff5e73;
+            --text: #eaf7ff;
+            --muted: #8ca2b5;
+        }
+        * { box-sizing: border-box; }
+        body {
+            min-height: 100vh;
+            margin: 0;
+            padding: 28px 18px 50px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            color: var(--text);
+            background:
+                radial-gradient(circle at 20% 0%, rgba(0,210,255,.12), transparent 38%),
+                linear-gradient(155deg, #080b10, var(--bg));
+        }
+        main { width: min(980px, 100%); margin: 0 auto; }
+        .astro-credit {
+            position: fixed; right: 14px; top: 12px; z-index: 30; pointer-events: none;
+            padding: 5px 8px; border: 1px solid rgba(0,210,255,.24); border-radius: 999px;
+            color: rgba(234,247,255,.68); background: rgba(8,13,18,.72); backdrop-filter: blur(7px);
+            font-size: .68rem; letter-spacing: .035em;
+        }
+        .astro-credit strong { color: rgba(66,245,167,.9); font-weight: 750; }
+        header { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; }
+        .brand-heading { display: flex; align-items: center; gap: 13px; min-width: 0; }
+        .astro-brand {
+            width: clamp(64px, 10vw, 104px); flex: none; overflow: hidden; border: 1px solid rgba(174,156,255,.44);
+            border-radius: 15px; background: #000; box-shadow: 0 0 28px rgba(174,156,255,.16);
+        }
+        .astro-brand img { display: block; width: 100%; height: auto; }
+        h1 { margin: 0 0 8px; color: var(--cyan); font-size: clamp(1.65rem, 4vw, 2.35rem); }
+        .subtitle { margin: 0; color: var(--muted); line-height: 1.5; }
+        .status {
+            flex: none; padding: 8px 12px; border: 1px solid #2d4051; border-radius: 999px;
+            color: var(--muted); background: rgba(17,25,35,.86); font-size: .83rem;
+        }
+        .status.online { border-color: rgba(66,245,167,.5); color: var(--green); }
+        .status.partial { border-color: rgba(255,196,92,.5); color: #ffc45c; }
+        .panel {
+            margin-top: 26px; padding: clamp(16px, 3vw, 28px); border: 1px solid #243648;
+            border-radius: 18px; background: rgba(17,25,35,.86); box-shadow: 0 18px 70px rgba(0,0,0,.3);
+        }
+        .surface-tabs { display: flex; gap: 8px; margin-bottom: 18px; }
+        .surface-tab { background: #0b121a; border-color: #2a4052; color: var(--muted); }
+        .surface-tab[aria-selected="true"] { background: var(--cyan); border-color: var(--cyan); color: #001018; }
+        .surface[hidden] { display: none; }
+        .keyboard-scroll { overflow-x: auto; padding: 8px 2px 14px; }
+        .keyboard { display: flex; position: relative; width: 560px; min-width: 560px; height: 220px; margin: 0 auto; }
+        .key {
+            border: 1px solid #050505; border-radius: 0 0 7px 7px; cursor: pointer;
+            display: flex; align-items: flex-end; justify-content: center; padding-bottom: 10px;
+            font-weight: 700; user-select: none; transition: transform .07s, background .12s, box-shadow .12s;
+        }
+        .key:active { transform: translateY(3px); }
+        .white-key { width: 40px; height: 210px; background: linear-gradient(#fff, #dfe7ec); color: #111; z-index: 1; }
+        .black-key {
+            width: 30px; height: 132px; position: absolute; z-index: 2; margin-left: -15px;
+            background: linear-gradient(#1b222a, #020304); color: #d9f8ff; border-color: #33404c;
+        }
+        .key.active { background: var(--cyan); color: #001018; box-shadow: 0 0 20px rgba(0,210,255,.6); }
+        .key.completion:not(.active) { background: linear-gradient(#d98654, #8b482e); color: #fff6ed; box-shadow: 0 0 15px rgba(255,157,92,.4); }
+        .key.suggested:not(.active):not(.completion) { background: linear-gradient(#9482ca, #5a4b85); color: #f6f2ff; box-shadow: 0 0 15px rgba(174,156,255,.4); }
+        .white-key.in-scale:not(.active) { background: linear-gradient(#e3fff4, #a8f2d1); }
+        .black-key.in-scale:not(.active) { background: linear-gradient(#245448, #0a241e); color: #dcfff0; }
+        .key.root:not(.active) { outline: 2px solid #ffc45c; outline-offset: -3px; }
+        .note-label { pointer-events: none; font-size: .72rem; }
+        .push-shell, .piano-shell { max-width: 720px; margin: 0 auto; padding: clamp(12px, 2vw, 20px); border: 1px solid #293947; border-radius: 15px; background: linear-gradient(145deg, #141d27, #080c12); }
+        .push-toolbar, .piano-toolbar { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }
+        .push-control, .piano-control { display: grid; gap: 5px; color: var(--muted); font-size: .72rem; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; }
+        select { width: 100%; min-width: 0; padding: 9px 10px; border: 1px solid #30475a; border-radius: 8px; background: #071018; color: var(--text); font: inherit; text-transform: none; }
+        .push-octave, .piano-octave { display: flex; gap: 6px; align-items: center; min-width: 0; }
+        .push-octave button, .piano-octave button { min-width: 30px; padding: 8px 9px; }
+        #push-octave, #piano-octave { min-width: 42px; color: var(--cyan); text-align: center; font-size: .9rem; }
+        .custom-intervals { display: grid; gap: 6px; margin: 0 0 14px; color: var(--muted); font-size: .78rem; }
+        .custom-intervals[hidden] { display: none; }
+        .custom-intervals input { width: 100%; padding: 9px 10px; border: 1px solid #30475a; border-radius: 8px; background: #071018; color: var(--text); font: inherit; }
+        .push-grid-frame { overflow: auto; padding: 5px; border-radius: 11px; background: #05080c; box-shadow: inset 0 0 0 1px #31404e, 0 14px 30px rgba(0,0,0,.35); }
+        .push-grid { display: grid; grid-template-columns: repeat(8, minmax(43px, 1fr)); gap: clamp(4px, .8vw, 7px); min-width: 390px; aspect-ratio: 1; }
+        .push-pad { display: grid; place-items: center; min-height: 0; padding: 4px; border: 1px solid #283744; border-radius: 7px; background: linear-gradient(145deg, #1a2732, #0e161e); color: #a9bbc7; font-size: clamp(.64rem, 1.8vw, .88rem); font-weight: 800; box-shadow: inset 0 -3px 0 rgba(0,0,0,.3); }
+        .push-pad:hover { border-color: var(--cyan); }
+        .push-pad.in-scale { background: linear-gradient(145deg, #263b49, #12212b); color: #d7f5ff; }
+        .push-pad.root { border-color: #ffc45c; color: #fff1c4; box-shadow: inset 0 -3px 0 rgba(0,0,0,.3), 0 0 13px rgba(255,196,92,.16); }
+        .push-pad.active { background: var(--cyan); border-color: #7fe9ff; color: #001018; box-shadow: 0 0 18px rgba(0,210,255,.65); }
+        .push-pad.completion:not(.active) { background: linear-gradient(145deg, #a55d3e, #54291f); border-color: var(--completion); color: #fff6ed; box-shadow: 0 0 16px rgba(255,157,92,.38); }
+        .push-pad.suggested:not(.active):not(.completion) { background: linear-gradient(145deg, #6d5b9d, #332751); border-color: var(--transition); color: #f6f2ff; box-shadow: 0 0 16px rgba(174,156,255,.38); }
+        .push-pad:active { transform: translateY(2px); }
+        .push-caption { margin: 12px 0 0; color: var(--muted); font-size: .82rem; line-height: 1.45; text-align: center; }
+        .selection { margin: 12px 0 0; text-align: center; color: var(--muted); }
+        #notes-display { color: var(--cyan); font-weight: 800; }
+        #chord-display { color: var(--green); font-weight: 700; }
+        .legend { display: flex; justify-content: center; gap: 18px; margin-top: 12px; font-size: .76rem; color: var(--muted); }
+        .dot { display: inline-block; width: 9px; height: 9px; margin-right: 6px; border-radius: 50%; }
+        .transition-summary { display: flex; justify-content: center; gap: 14px; flex-wrap: wrap; margin: 9px 0 0; font-size: .76rem; }
+        .transition-source { color: var(--cyan); }
+        .transition-completion { color: var(--completion); }
+        .transition-system { color: var(--transition); }
+        .completion-action { margin: 12px auto 0; max-width: 720px; padding: 12px; border: 1px solid rgba(255,157,92,.58); border-radius: 10px; background: rgba(99,52,31,.25); }
+        .completion-action[hidden] { display: none; }
+        .completion-guidance { margin: 0; color: #ffe0cd; font-size: .84rem; line-height: 1.45; }
+        .completion-options { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+        .completion-options button { border-color: rgba(255,157,92,.65); color: #ffe8d8; }
+        .completion-options button.active { background: var(--completion); border-color: #ffd2b4; color: #281108; }
+        .transition-action { margin: 12px auto 0; max-width: 720px; padding: 12px; border: 1px solid rgba(174,156,255,.6); border-radius: 10px; background: rgba(63,45,105,.25); }
+        .transition-action[hidden] { display: none; }
+        .transition-guidance { margin: 0; color: #eee8ff; font-size: .84rem; line-height: 1.45; }
+        .transition-options { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+        .transition-options button { border-color: rgba(174,156,255,.68); color: #eee8ff; }
+        .transition-options button.active { background: var(--transition); border-color: #e7deff; color: #1d1635; }
+        .form-grid { display: grid; grid-template-columns: 1fr auto; gap: 12px; margin-top: 22px; }
+        input[type="text"] {
+            width: 100%; min-width: 0; padding: 13px 15px; border: 1px solid #2a4052; border-radius: 9px;
+            background: #0b121a; color: var(--text); font-size: 1rem; outline: none;
+        }
+        input[type="text"]:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(0,210,255,.12); }
+        .button-row { display: flex; gap: 9px; flex-wrap: wrap; margin-top: 12px; }
+        .microphone-status { min-height: 1.35em; margin: 10px 0 0; color: var(--muted); font-size: .82rem; line-height: 1.45; }
+        .microphone-status.error { color: #ffc3cb; }
+        .microphone-status.ok { color: var(--green); }
+        .sequence-panel { margin-top: 24px; padding: 18px; border: 1px solid #2b4053; border-radius: 13px; background: rgba(7,16,24,.7); }
+        .sequence-heading { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+        .sequence-heading h2 { margin: 0; color: var(--green); font-size: 1.05rem; }
+        .sequence-heading p { margin: 0; color: var(--muted); font-size: .8rem; line-height: 1.45; }
+        .progression-builder { display: grid; grid-template-columns: minmax(180px, 1.2fr) minmax(110px, .5fr) minmax(210px, .9fr); gap: 10px; align-items: end; margin-top: 15px; padding: 12px; border: 1px solid #294254; border-radius: 10px; background: rgba(12,28,39,.7); }
+        .progression-help { margin: 9px 0 0; color: var(--muted); font-size: .78rem; line-height: 1.45; }
+        .sequence-controls { display: grid; grid-template-columns: minmax(92px, .46fr) minmax(84px, .42fr) minmax(142px, .72fr) minmax(150px, .8fr) minmax(178px, 1fr); gap: 10px; align-items: end; margin-top: 14px; }
+        .sequence-control { display: grid; gap: 5px; color: var(--muted); font-size: .72rem; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; }
+        input[type="number"] { width: 100%; padding: 9px 10px; border: 1px solid #30475a; border-radius: 8px; background: #071018; color: var(--text); font: inherit; }
+        input[type="range"] { width: 100%; accent-color: var(--cyan); }
+        .velocity-control { grid-template-columns: 1fr auto; align-items: center; column-gap: 8px; }
+        .velocity-control input { grid-column: 1 / -1; }
+        .velocity-output { color: var(--cyan); font-size: .82rem; text-transform: none; }
+        .sequence-list { display: grid; gap: 8px; margin: 14px 0 0; padding: 0; list-style: none; }
+        .sequence-item { display: flex; align-items: flex-start; gap: 10px; padding: 10px 11px; border: 1px solid #2a4052; border-radius: 9px; background: #111923; }
+        .sequence-index { display: grid; place-items: center; width: 24px; height: 24px; flex: none; border-radius: 50%; background: #183444; color: var(--cyan); font-size: .75rem; font-weight: 800; }
+        .sequence-event { min-width: 0; flex: 1; }
+        .sequence-event > strong, .sequence-event > span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .sequence-event > strong { color: var(--text); font-size: .88rem; }
+        .sequence-event > span { margin-top: 2px; color: var(--muted); font-size: .77rem; }
+        .voice-editor { display: grid; gap: 5px; margin-top: 9px; }
+        .voice-control { display: grid; grid-template-columns: minmax(42px, auto) 1fr 34px; gap: 7px; align-items: center; color: var(--muted); font-size: .73rem; }
+        .voice-control output { color: var(--cyan); text-align: right; font-variant-numeric: tabular-nums; }
+        .sequence-rest { color: #ffc45c !important; }
+        .sequence-remove { padding: 7px 10px; font-size: .78rem; }
+        .sequence-empty { margin: 14px 0 0; color: var(--muted); font-size: .84rem; }
+        .sequence-empty[hidden] { display: none; }
+        .midi-status { min-height: 1.35em; margin: 11px 0 0; color: var(--muted); font-size: .82rem; }
+        .midi-status.error { color: #ffc3cb; }
+        .midi-status.ok { color: var(--green); }
+        .file-protocol-notice { margin: 18px 0 0; padding: 12px 14px; border: 1px solid rgba(255,196,92,.58); border-radius: 10px; color: #ffe0a8; background: rgba(85,58,16,.26); line-height: 1.5; }
+        .file-protocol-notice a { color: var(--cyan); font-weight: 800; }
+        .file-protocol-notice[hidden] { display: none; }
+        button {
+            padding: 12px 18px; border: 1px solid transparent; border-radius: 9px; cursor: pointer;
+            background: var(--cyan); color: #001018; font-size: .94rem; font-weight: 800;
+        }
+        button.secondary { background: var(--panel-2); color: var(--text); border-color: #30475a; }
+        button:hover { filter: brightness(1.12); }
+        button:disabled { opacity: .45; cursor: not-allowed; }
+        #response-box {
+            display: none; margin-top: 20px; padding: 20px; border-radius: 12px;
+            border-left: 4px solid var(--cyan); background: #0a1118; line-height: 1.65;
+            white-space: pre-wrap; overflow-wrap: anywhere;
+        }
+        #response-box.error { border-left-color: var(--red); color: #ffc3cb; }
+        #response-box.analysis-response { border-left-color: var(--transition); }
+        .analysis-progress { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 10px; align-items: center; margin-top: 12px; padding: 11px 13px; border: 1px solid rgba(0,210,255,.34); border-radius: 10px; background: rgba(0,210,255,.06); color: #bcefff; }
+        .analysis-progress[hidden] { display: none; }
+        .analysis-progress-spinner { width: 20px; height: 20px; border: 3px solid rgba(0,210,255,.2); border-top-color: var(--cyan); border-radius: 50%; animation: analysis-spin .85s linear infinite; }
+        .analysis-progress p { margin: 0; font-size: .84rem; line-height: 1.35; }
+        .analysis-progress small { display: block; margin-top: 3px; color: var(--muted); }
+        @keyframes analysis-spin { to { transform: rotate(360deg); } }
+        @media (max-width: 650px) {
+            body { padding: 60px 4px 30px; }
+            header { flex-direction: column; }
+            .brand-heading { align-items: flex-start; }
+            .panel { padding: 12px 8px; }
+            .form-grid { grid-template-columns: 1fr; }
+            .form-grid button { width: 100%; }
+            .push-toolbar, .piano-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .push-shell, .piano-shell { padding: 8px; }
+            .push-grid-frame { padding: 2px; }
+            .push-grid { min-width: 0; width: 100%; }
+            .sequence-panel { padding: 14px 10px; }
+            .sequence-controls, .progression-builder { grid-template-columns: 1fr; }
+            .sequence-controls button { width: 100%; }
+            .progression-builder button { width: 100%; }
+        }
+    </style>
+</head>
+<body>
+<main>
+    <header>
+        <div class="brand-heading">
+<div class="astro-brand"><img src="/favicon.svg" alt="Cerebro OS"></div>
+            <div>
+                <h1>🎹 Cerebro - Asistente Musical</h1>
+                <p class="subtitle">Marca las notas de tu acorde. Usa el teclado o una rejilla inspirada en Push 2 para trabajar por tónica, escala y grados.</p>
+            </div>
+        </div>
+        <div id="server-status" class="status" role="status">Comprobando servidor…</div>
+    </header>
+
+    <section class="panel" aria-label="Teclado y controles de composición">
+        <div class="surface-tabs" role="tablist" aria-label="Superficie de interpretación">
+            <button id="push-tab" class="surface-tab" type="button" role="tab" aria-selected="true" aria-controls="push-surface">Rejilla Push</button>
+            <button id="piano-tab" class="surface-tab" type="button" role="tab" aria-selected="false" aria-controls="piano-surface">Teclado</button>
+        </div>
+
+        <div id="push-surface" class="surface" role="tabpanel" aria-labelledby="push-tab">
+            <div class="push-shell">
+                <div class="push-toolbar" aria-label="Controles de escala de la rejilla">
+                    <label class="push-control">Tónica
+                        <select id="root-select">
+                            <option>C</option><option>C#</option><option>D</option><option>D#</option><option>E</option><option>F</option>
+                            <option>F#</option><option>G</option><option>G#</option><option>A</option><option>A#</option><option>B</option>
+                        </select>
+                    </label>
+                    <label class="push-control">Escala
+                        <select id="scale-select">
+                            <option value="major">Mayor</option>
+                            <option value="natural-minor">Menor natural</option>
+                            <option value="dorian">Dórica</option>
+                            <option value="mixolydian">Mixolidia</option>
+                            <option value="major-pentatonic">Pentatónica mayor</option>
+                            <option value="minor-pentatonic">Pentatónica menor</option>
+                            <option value="blues">Blues</option>
+                        </select>
+                    </label>
+                    <label class="push-control">Modo
+                        <select id="push-mode">
+                            <option value="in-key">En escala</option>
+                            <option value="chromatic">Cromático</option>
+                        </select>
+                    </label>
+                    <div class="push-control">Octava
+                        <div class="push-octave">
+                            <button id="push-octave-down" class="secondary" type="button" aria-label="Bajar octava">−</button>
+                            <output id="push-octave" aria-live="polite">3</output>
+                            <button id="push-octave-up" class="secondary" type="button" aria-label="Subir octava">+</button>
+                        </div>
+                    </div>
+                </div>
+                <label id="custom-scale-control" class="custom-intervals" hidden>
+                    Escala personalizada: intervalos desde la tónica (0–11, separados por comas)
+                    <input id="custom-intervals" type="text" inputmode="numeric" autocomplete="off" value="0,2,4,5,7,9,11" aria-describedby="custom-scale-help">
+                    <span id="custom-scale-help">Incluye siempre 0. Ejemplo: 0,1,4,5,7,8,10.</span>
+                </label>
+                <div class="push-grid-frame">
+                    <div id="push-grid" class="push-grid" role="group" aria-label="Rejilla de notas de ocho por ocho"></div>
+                </div>
+                <p class="push-caption">En escala: los pads se ordenan por grados, con una disposición inspirada en cuartas. Cromático: las notas ajenas a la escala quedan apagadas.</p>
+            </div>
+        </div>
+
+        <div id="piano-surface" class="surface" role="tabpanel" aria-labelledby="piano-tab" hidden>
+            <div class="piano-shell">
+                <div class="piano-toolbar" aria-label="Controles de composición del teclado">
+                    <label class="piano-control">Tónica
+                        <select id="piano-root-select">
+                            <option>C</option><option>C#</option><option>D</option><option>D#</option><option>E</option><option>F</option>
+                            <option>F#</option><option>G</option><option>G#</option><option>A</option><option>A#</option><option>B</option>
+                        </select>
+                    </label>
+                    <label class="piano-control">Escala
+                        <select id="piano-scale-select">
+                            <option value="major">Mayor</option>
+                            <option value="natural-minor">Menor natural</option>
+                            <option value="dorian">Dórica</option>
+                            <option value="mixolydian">Mixolidia</option>
+                            <option value="major-pentatonic">Pentatónica mayor</option>
+                            <option value="minor-pentatonic">Pentatónica menor</option>
+                            <option value="blues">Blues</option>
+                        </select>
+                    </label>
+                    <label class="piano-control">Modo
+                        <select id="piano-mode-select">
+                            <option value="in-key">En escala</option>
+                            <option value="chromatic">Cromático</option>
+                        </select>
+                    </label>
+                    <div class="piano-control">Octava
+                        <div class="piano-octave">
+                            <button id="piano-octave-down" class="secondary" type="button" aria-label="Bajar octava del teclado">−</button>
+                            <output id="piano-octave" aria-live="polite">3–4</output>
+                            <button id="piano-octave-up" class="secondary" type="button" aria-label="Subir octava del teclado">+</button>
+                        </div>
+                    </div>
+                </div>
+                <label id="piano-custom-scale-control" class="custom-intervals" hidden>
+                    Escala personalizada: intervalos desde la tónica (0–11, separados por comas)
+                    <input id="piano-custom-intervals" type="text" inputmode="numeric" autocomplete="off" value="0,2,4,5,7,9,11">
+                </label>
+                <div class="keyboard-scroll">
+                    <div class="keyboard" id="keyboard" role="group" aria-label="Teclado de piano de dos octavas"></div>
+                </div>
+            </div>
+        </div>
+
+        <p class="selection">Notas seleccionadas: <span id="notes-display">Ninguna</span></p>
+        <p class="selection">Análisis: <span id="chord-display">pendiente</span></p>
+        <div class="legend">
+            <span><i class="dot" style="background:var(--cyan)"></i>Acorde de partida</span>
+            <span><i class="dot" style="background:var(--completion)"></i>Notas para completar el acorde</span>
+            <span><i class="dot" style="background:var(--transition)"></i>Raíces de transición propuestas</span>
+        </div>
+        <p class="transition-summary" aria-live="polite">
+            <span class="transition-source">Origen: <strong id="source-chord-display">Ninguno</strong></span>
+            <span class="transition-completion">Completar: <strong id="completion-notes-display">No necesario</strong></span>
+            <span class="transition-system">Sistema: <strong id="transition-roots-display">Sin propuesta</strong></span>
+        </p>
+        <div id="completion-action" class="completion-action" hidden aria-live="polite">
+            <p id="completion-guidance" class="completion-guidance"></p>
+            <div id="completion-options" class="completion-options"></div>
+            <button id="apply-completion-btn" type="button" class="secondary" disabled>＋ Completar acorde sugerido</button>
+        </div>
+        <div id="transition-action" class="transition-action" hidden aria-live="polite">
+            <p id="transition-guidance" class="transition-guidance"></p>
+            <div id="transition-options" class="transition-options"></div>
+        </div>
+
+        <div class="form-grid">
+            <input type="text" id="emotion" maxlength="500" autocomplete="off"
+                   placeholder="Ej.: épico y heroico; transición melancólica; neo-soul…">
+            <button id="ask-btn">Analizar con Cerebro</button>
+        </div>
+        <div id="analysis-progress" class="analysis-progress" role="status" aria-live="polite" hidden>
+            <span class="analysis-progress-spinner" role="progressbar" aria-label="Esperando respuesta de Cerebro local" aria-valuetext="Solicitud en curso"></span>
+            <p id="analysis-progress-text">Solicitud enviada a Cerebro local.<small id="analysis-progress-detail">Esperando el análisis musical.</small></p>
+        </div>
+        <div class="button-row">
+            <button id="play-btn" class="secondary" type="button">▶ Escuchar acorde completo</button>
+            <button id="listen-chord-btn" class="secondary" type="button">🎙 Escuchar instrumento</button>
+            <button id="stop-listening-btn" class="secondary" type="button" hidden>■ Detener escucha</button>
+            <button id="clear-btn" class="secondary" type="button">Limpiar</button>
+        </div>
+        <p id="microphone-status" class="microphone-status" role="status" aria-live="polite">El micrófono analiza localmente una toma corta; no graba ni envía audio.</p>
+
+        <section class="sequence-panel" aria-labelledby="sequence-heading">
+            <div class="sequence-heading">
+                <h2 id="sequence-heading">Cadena MIDI</h2>
+                <p>Añade los acordes que confirmes. La exportación conserva sus notas, octavas, tempo y duración.</p>
+            </div>
+            <div class="progression-builder" aria-label="Generador de progresiones MIDI">
+                <label class="sequence-control">Tipo de progresión
+                    <select id="progression-style">
+                        <option value="adaptive-link" selected>Enlace adaptativo hacia la tónica</option>
+                        <option value="diatonic">Diatónica para un bucle</option>
+                        <option value="cadence">Cadencia diatónica (IV–V–I)</option>
+                        <option value="secondary-dominant">Dominante secundaria (V/ii)</option>
+                        <option value="diminished-passing">Disminuido de paso hacia V</option>
+                        <option value="augmented-dominant">Dominante aumentada / alterada</option>
+                    </select>
+                </label>
+                <label class="sequence-control">Acordes
+                    <select id="progression-length">
+                        <option value="2">2</option>
+                        <option value="3">3</option>
+                        <option value="4" selected>4</option>
+                        <option value="5">5</option>
+                        <option value="6">6</option>
+                        <option value="8">8</option>
+                    </select>
+                </label>
+                <button id="build-progression-btn" type="button">Construir progresión desde el acorde</button>
+            </div>
+            <p class="progression-help">Usa las voces seleccionadas como origen. El modo adaptativo elige una función de enlace y resuelve en la tónica; los sostenidos y bemoles son alteraciones, no una receta fija. Puedes elegir un enlace concreto, editarlo y exportarlo en MIDI.</p>
+            <div class="sequence-controls">
+                <label class="sequence-control">Tempo (BPM)
+                    <input id="tempo-input" type="number" min="30" max="300" value="120" inputmode="numeric">
+                </label>
+                <label class="sequence-control">Compás
+                    <select id="meter-select">
+                        <option value="4/4" selected>4/4</option>
+                        <option value="3/4">3/4</option>
+                        <option value="6/8">6/8</option>
+                        <option value="12/8">12/8</option>
+                    </select>
+                </label>
+                <label class="sequence-control">Duración del acorde
+                    <select id="sequence-duration">
+                        <option value="1">1 pulso</option>
+                        <option value="2">2 pulsos</option>
+                        <option value="4" selected>4 pulsos · 1 compás</option>
+                        <option value="8">8 pulsos · 2 compases</option>
+                    </select>
+                </label>
+                <label class="sequence-control velocity-control">Velocity de nueva nota <output id="new-note-velocity-output" class="velocity-output">84</output>
+                    <input id="new-note-velocity" type="range" min="1" max="127" value="84" aria-label="Velocity de nueva nota">
+                </label>
+                <button id="add-chord-btn" type="button">＋ Añadir acorde actual</button>
+            </div>
+            <p id="sequence-empty" class="sequence-empty">Aún no has añadido ningún acorde a la cadena.</p>
+            <ol id="sequence-list" class="sequence-list" aria-live="polite"></ol>
+            <div class="button-row">
+                <button id="play-sequence-btn" type="button" disabled>▶ Reproducir cadena</button>
+                <button id="import-midi-btn" class="secondary" type="button">⇧ Importar MIDI</button>
+                <button id="export-midi-btn" type="button" disabled>⇩ Exportar MIDI</button>
+                <button id="clear-sequence-btn" class="secondary" type="button" disabled>Vaciar cadena</button>
+            </div>
+            <input id="midi-import-input" type="file" accept=".mid,.midi,audio/midi,audio/x-midi,application/x-midi" hidden>
+            <p id="midi-status" class="midi-status" role="status" aria-live="polite"></p>
+        </section>
+
+        <div id="response-box" role="region" aria-live="polite"></div>
+        <p id="file-protocol-notice" class="file-protocol-notice" hidden>
+            Esta copia abierta como archivo no puede cargar la rejilla, el catálogo completo ni la exportación MIDI. Abre
+            <a href="http://127.0.0.1:8082/">Composer local</a> desde el servidor.
+        </p>
+    </section>
+</main>
+<aside class="astro-credit" aria-label="Diseñado por Astro One Deep">Diseñado por <strong>Astro One Deep</strong></aside>
+
+<script>
+    const notes = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+    const semitones = {"C":0,"C#":1,"D":2,"D#":3,"E":4,"F":5,"F#":6,"G":7,"G#":8,"A":9,"A#":10,"B":11};
+    const keyboard = document.getElementById("keyboard");
+    const pushGrid = document.getElementById("push-grid");
+    const rootSelect = document.getElementById("root-select");
+    const scaleSelect = document.getElementById("scale-select");
+    const pushMode = document.getElementById("push-mode");
+    const pushOctaveDisplay = document.getElementById("push-octave");
+    const pianoRootSelect = document.getElementById("piano-root-select");
+    const pianoScaleSelect = document.getElementById("piano-scale-select");
+    const pianoModeSelect = document.getElementById("piano-mode-select");
+    const pianoOctaveDisplay = document.getElementById("piano-octave");
+    const customScaleControl = document.getElementById("custom-scale-control");
+    const customIntervals = document.getElementById("custom-intervals");
+    const pianoCustomScaleControl = document.getElementById("piano-custom-scale-control");
+    const pianoCustomIntervals = document.getElementById("piano-custom-intervals");
+    const responseBox = document.getElementById("response-box");
+    const sourceChordDisplay = document.getElementById("source-chord-display");
+    const completionNotesDisplay = document.getElementById("completion-notes-display");
+    const transitionRootsDisplay = document.getElementById("transition-roots-display");
+    const completionAction = document.getElementById("completion-action");
+    const completionGuidance = document.getElementById("completion-guidance");
+    const completionOptionsBox = document.getElementById("completion-options");
+    const applyCompletionButton = document.getElementById("apply-completion-btn");
+    const transitionAction = document.getElementById("transition-action");
+    const transitionGuidance = document.getElementById("transition-guidance");
+    const transitionOptionsBox = document.getElementById("transition-options");
+    const tempoInput = document.getElementById("tempo-input");
+    const meterSelect = document.getElementById("meter-select");
+    const sequenceDuration = document.getElementById("sequence-duration");
+    const progressionStyle = document.getElementById("progression-style");
+    const progressionLength = document.getElementById("progression-length");
+    const buildProgressionButton = document.getElementById("build-progression-btn");
+    const analysisProgress = document.getElementById("analysis-progress");
+    const analysisProgressText = document.getElementById("analysis-progress-text");
+    const analysisProgressDetail = document.getElementById("analysis-progress-detail");
+    const newNoteVelocity = document.getElementById("new-note-velocity");
+    const newNoteVelocityOutput = document.getElementById("new-note-velocity-output");
+    const sequenceList = document.getElementById("sequence-list");
+    const sequenceEmpty = document.getElementById("sequence-empty");
+    const midiStatus = document.getElementById("midi-status");
+    const midiImportInput = document.getElementById("midi-import-input");
+    const importMidiButton = document.getElementById("import-midi-btn");
+    const exportMidiButton = document.getElementById("export-midi-btn");
+    const playSequenceButton = document.getElementById("play-sequence-btn");
+    const clearSequenceButton = document.getElementById("clear-sequence-btn");
+    const listenChordButton = document.getElementById("listen-chord-btn");
+    const stopListeningButton = document.getElementById("stop-listening-btn");
+    const microphoneStatus = document.getElementById("microphone-status");
+    const selectedVoices = new Map();
+    const completionNotes = new Set();
+    const suggestedNotes = new Set();
+    const chordSequence = [];
+    let completionOptions = [];
+    let activeCompletionOption = null;
+    let transitionOptions = [];
+    let activeTransitionId = null;
+    let transitionSelectionSignature = "";
+    const COMPOSER_STATE_KEY = "cerebro-composer-progression-v2";
+    const COMPOSER_STATE_VERSION = 2;
+    let audioContext = null;
+    const chainOscillators = new Set();
+    let chainPlaybackTimer = null;
+    let chainIsPlaying = false;
+    let pushOctave = 3;
+    let pianoOctave = 3;
+    let pushGridRequest = 0;
+    let analysisRequest = 0;
+    let analysisProgressTimer = null;
+
+    function stopAnalysisProgress() {
+        if (analysisProgressTimer !== null) {
+            window.clearInterval(analysisProgressTimer);
+            analysisProgressTimer = null;
+        }
+        analysisProgress.hidden = true;
+    }
+
+    function startAnalysisProgress() {
+        stopAnalysisProgress();
+        const startedAt = Date.now();
+        const renderProgress = () => {
+            const elapsedSeconds = Math.floor((Date.now() - startedAt) / 1000);
+            analysisProgress.hidden = false;
+            analysisProgressText.firstChild.textContent = "Solicitud enviada a Cerebro local. ";
+            if (elapsedSeconds < 8) {
+                analysisProgressDetail.textContent = `Analizando teoría musical · ${elapsedSeconds}s`;
+            } else if (elapsedSeconds < 30) {
+                analysisProgressDetail.textContent = `Esperando respuesta del modelo local · ${elapsedSeconds}s`;
+            } else {
+                analysisProgressDetail.textContent = `El modelo sigue preparando la respuesta · ${elapsedSeconds}s. La primera carga puede tardar hasta 3½ minutos.`;
+            }
+        };
+        renderProgress();
+        analysisProgressTimer = window.setInterval(renderProgress, 1000);
+    }
+    let sequenceEventId = 0;
+    let currentScaleNotes = new Set();
+    let microphoneAbortController = null;
+    let audioCaptureModule = null;
+
+    function midiNumber(note, octave) {
+        return (octave + 1) * 12 + semitones[note];
+    }
+
+    function frequency(note, octave) {
+        const midi = midiNumber(note, octave);
+        return 440 * Math.pow(2, (midi - 69) / 12);
+    }
+
+    function voiceKey(note, octave) {
+        return `${note}:${octave}`;
+    }
+
+    function readVelocity(value, fallback = 84) {
+        const velocity = Number(value);
+        return Number.isInteger(velocity) && velocity >= 1 && velocity <= 127 ? velocity : fallback;
+    }
+
+    function selectedVoiceEntries() {
+        return Array.from(selectedVoices.values())
+            .map(voice => ({...voice}))
+            .sort((first, second) => frequency(first.note, first.octave) - frequency(second.note, second.octave));
+    }
+
+    function selectedPitchClasses() {
+        return new Set(selectedVoiceEntries().map(voice => voice.note));
+    }
+
+    function harmonicSelectionSignature() {
+        const selected = Array.from(selectedPitchClasses()).sort().join(",");
+        const custom = scaleSelect.value === "custom" ? customIntervals.value.trim() : "";
+        return `${selected}|${rootSelect.value}|${scaleSelect.value}|${custom}`;
+    }
+
+    function normalizeVoice(candidate) {
+        if (!candidate || !notes.includes(candidate.note)) return null;
+        const octave = Number(candidate.octave);
+        if (!Number.isInteger(octave) || octave < 0 || octave > 8) return null;
+        return {note: candidate.note, octave, velocity: readVelocity(candidate.velocity)};
+    }
+
+    function normalizeSequenceEvent(candidate) {
+        if (!candidate || !Array.isArray(candidate.notes)) return null;
+        const uniqueVoices = new Map();
+        for (const candidateVoice of candidate.notes) {
+            const voice = normalizeVoice(candidateVoice);
+            if (voice) uniqueVoices.set(voiceKey(voice.note, voice.octave), voice);
+        }
+        const durationBeats = Number(candidate.durationBeats ?? candidate.duration_beats);
+        const offsetBeats = Number(candidate.offsetBeats ?? candidate.offset_beats ?? 0);
+        if (!uniqueVoices.size || !Number.isFinite(durationBeats) || durationBeats <= 0 || durationBeats > 1024) return null;
+        if (!Number.isFinite(offsetBeats) || offsetBeats < 0 || offsetBeats > 1024) return null;
+        const label = typeof candidate.label === "string" && candidate.label.trim()
+            ? candidate.label.trim().slice(0, 160)
+            : "Acorde importado";
+        return {
+            id: Number.isInteger(candidate.id) && candidate.id > 0 ? candidate.id : ++sequenceEventId,
+            label,
+            notes: Array.from(uniqueVoices.values()).sort((first, second) => frequency(first.note, first.octave) - frequency(second.note, second.octave)),
+            offsetBeats,
+            durationBeats
+        };
+    }
+
+    function persistComposerState() {
+        const tempo = Number(tempoInput.value);
+        const state = {
+            version: COMPOSER_STATE_VERSION,
+            tempo: Number.isInteger(tempo) && tempo >= 30 && tempo <= 300 ? tempo : 120,
+            meter: meterSelect.value,
+            duration: sequenceDuration.value,
+            newNoteVelocity: readVelocity(newNoteVelocity.value),
+            events: chordSequence
+        };
+        try {
+            localStorage.setItem(COMPOSER_STATE_KEY, JSON.stringify(state));
+        } catch (_) {
+            // Composer sigue funcionando aunque el navegador no permita almacenamiento local.
+        }
+    }
+
+    function clearPersistedComposerState() {
+        try {
+            localStorage.removeItem(COMPOSER_STATE_KEY);
+        } catch (_) {}
+    }
+
+    function restoreComposerState() {
+        try {
+            const state = JSON.parse(localStorage.getItem(COMPOSER_STATE_KEY) || "null");
+            if (!state || state.version !== COMPOSER_STATE_VERSION || !Array.isArray(state.events)) return 0;
+            const tempo = Number(state.tempo);
+            if (Number.isInteger(tempo) && tempo >= 30 && tempo <= 300) tempoInput.value = String(tempo);
+            if (Array.from(meterSelect.options).some(option => option.value === state.meter)) meterSelect.value = state.meter;
+            if (Array.from(sequenceDuration.options).some(option => option.value === String(state.duration))) {
+                sequenceDuration.value = String(state.duration);
+            }
+            newNoteVelocity.value = String(readVelocity(state.newNoteVelocity));
+            newNoteVelocityOutput.textContent = newNoteVelocity.value;
+            for (const candidate of state.events) {
+                const event = normalizeSequenceEvent(candidate);
+                if (event) chordSequence.push(event);
+            }
+            sequenceEventId = Math.max(sequenceEventId, ...chordSequence.map(event => event.id), 0);
+            return chordSequence.length;
+        } catch (_) {
+            clearPersistedComposerState();
+            return 0;
+        }
+    }
+
+    function formatVoiceList(voices) {
+        return voices.map(voice => `${voice.note}${voice.octave}`).join(" · ");
+    }
+
+    function formatBeatDuration(duration) {
+        return `${duration} ${duration === 1 ? "pulso" : "pulsos"}`;
+    }
+
+    function setMidiStatus(message = "", state = "") {
+        midiStatus.textContent = message;
+        midiStatus.className = `midi-status${state ? ` ${state}` : ""}`;
+    }
+
+    function renderChordSequence() {
+        sequenceList.replaceChildren();
+        sequenceEmpty.hidden = chordSequence.length > 0;
+        exportMidiButton.disabled = chordSequence.length === 0;
+        playSequenceButton.disabled = chordSequence.length === 0;
+        playSequenceButton.textContent = chainIsPlaying ? "■ Detener cadena" : "▶ Reproducir cadena";
+        clearSequenceButton.disabled = chordSequence.length === 0;
+
+        chordSequence.forEach((event, index) => {
+            const item = document.createElement("li");
+            item.className = "sequence-item";
+
+            const position = document.createElement("span");
+            position.className = "sequence-index";
+            position.textContent = String(index + 1);
+
+            const details = document.createElement("div");
+            details.className = "sequence-event";
+            const title = document.createElement("strong");
+            title.textContent = event.label;
+            const metadata = document.createElement("span");
+            metadata.textContent = `${formatVoiceList(event.notes)} · ${formatBeatDuration(event.durationBeats)}`;
+            details.append(title, metadata);
+            if (event.offsetBeats > 0) {
+                const rest = document.createElement("span");
+                rest.className = "sequence-rest";
+                rest.textContent = `Silencio antes: ${formatBeatDuration(event.offsetBeats)}`;
+                details.appendChild(rest);
+            }
+
+            const voiceEditor = document.createElement("div");
+            voiceEditor.className = "voice-editor";
+            event.notes.forEach((voice, voiceIndex) => {
+                const velocityControl = document.createElement("label");
+                velocityControl.className = "voice-control";
+                const label = document.createElement("span");
+                label.textContent = `${voice.note}${voice.octave}`;
+                const velocityInput = document.createElement("input");
+                velocityInput.type = "range";
+                velocityInput.min = "1";
+                velocityInput.max = "127";
+                velocityInput.value = String(voice.velocity);
+                velocityInput.setAttribute("aria-label", `Velocity de ${voice.note}${voice.octave} en acorde ${index + 1}`);
+                const velocityValue = document.createElement("output");
+                velocityValue.textContent = String(voice.velocity);
+                velocityInput.addEventListener("input", () => {
+                    event.notes[voiceIndex].velocity = readVelocity(velocityInput.value);
+                    velocityValue.textContent = String(event.notes[voiceIndex].velocity);
+                    persistComposerState();
+                });
+                velocityControl.append(label, velocityInput, velocityValue);
+                voiceEditor.appendChild(velocityControl);
+            });
+            details.appendChild(voiceEditor);
+
+            const removeButton = document.createElement("button");
+            removeButton.type = "button";
+            removeButton.className = "secondary sequence-remove";
+            removeButton.textContent = "Quitar";
+            removeButton.setAttribute("aria-label", `Quitar acorde ${index + 1} de la cadena`);
+            removeButton.addEventListener("click", () => {
+                stopChainPlayback();
+                const removeAt = chordSequence.findIndex(candidate => candidate.id === event.id);
+                if (removeAt !== -1) chordSequence.splice(removeAt, 1);
+                setMidiStatus();
+                persistComposerState();
+                renderChordSequence();
+            });
+
+            item.append(position, details, removeButton);
+            sequenceList.appendChild(item);
+        });
+    }
+
+    function addCurrentChordToSequence() {
+        stopChainPlayback();
+        const chord = selectedVoiceEntries();
+        const durationBeats = Number(sequenceDuration.value);
+        if (!chord.length) {
+            setMidiStatus("Selecciona al menos una nota antes de añadirla a la cadena.", "error");
+            return;
+        }
+        if (!Number.isFinite(durationBeats) || durationBeats <= 0 || durationBeats > 1024) {
+            setMidiStatus("La duración del acorde no es válida.", "error");
+            return;
+        }
+
+        const analysis = document.getElementById("chord-display").textContent;
+        chordSequence.push({
+            id: ++sequenceEventId,
+            label: analysis !== "pendiente" ? analysis : "Acorde confirmado",
+            notes: chord.map(voice => ({...voice})),
+            offsetBeats: 0,
+            durationBeats
+        });
+        setMidiStatus(`Acorde ${chordSequence.length} añadido a la cadena.`, "ok");
+        persistComposerState();
+        renderChordSequence();
+    }
+
+    async function exportMidi() {
+        if (!chordSequence.length) return;
+        const tempo = Number(tempoInput.value);
+        if (!Number.isInteger(tempo) || tempo < 30 || tempo > 300) {
+            setMidiStatus("El tempo debe ser un número entero entre 30 y 300 BPM.", "error");
+            return;
+        }
+
+        exportMidiButton.disabled = true;
+        exportMidiButton.textContent = "Preparando MIDI…";
+        setMidiStatus("Generando un archivo MIDI local…");
+        try {
+            const response = await fetch("/api/export/midi", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({
+                    tempo,
+                    beats_per_bar: Number(meterSelect.value.split("/")[0]),
+                    beat_unit: Number(meterSelect.value.split("/")[1]),
+                    events: chordSequence.map(event => ({
+                        notes: event.notes,
+                        offset_beats: event.offsetBeats,
+                        duration_beats: event.durationBeats
+                    }))
+                })
+            });
+            if (!response.ok) {
+                let message = `HTTP ${response.status}`;
+                try {
+                    const data = await response.json();
+                    message = data.detail?.[0]?.msg || data.detail || message;
+                } catch (_) {}
+                throw new Error(message);
+            }
+            const midi = await response.blob();
+            const downloadUrl = URL.createObjectURL(midi);
+            const download = document.createElement("a");
+            download.href = downloadUrl;
+            download.download = "composer-progression.mid";
+            document.body.appendChild(download);
+            download.click();
+            download.remove();
+            window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 0);
+            setMidiStatus(`MIDI descargado: ${chordSequence.length} ${chordSequence.length === 1 ? "acorde" : "acordes"}, ${tempo} BPM.`, "ok");
+        } catch (error) {
+            setMidiStatus(`No se pudo exportar el MIDI: ${error.message}`, "error");
+        } finally {
+            exportMidiButton.textContent = "⇩ Exportar MIDI";
+            exportMidiButton.disabled = chordSequence.length === 0;
+        }
+    }
+
+    function loadGeneratedProgression(data) {
+        if (!data || !Array.isArray(data.events) || !data.events.length) {
+            throw new Error("Composer no recibió una progresión completa.");
+        }
+        const generatedEvents = [];
+        for (const candidate of data.events) {
+            const event = normalizeSequenceEvent(candidate);
+            if (event) generatedEvents.push(event);
+        }
+        if (!generatedEvents.length) {
+            throw new Error("La progresión contiene notas no compatibles con el rango MIDI.");
+        }
+        stopChainPlayback();
+        chordSequence.splice(0, chordSequence.length, ...generatedEvents);
+        sequenceEventId = Math.max(sequenceEventId, ...chordSequence.map(event => event.id), 0);
+        persistComposerState();
+        renderChordSequence();
+        setMidiStatus(`Progresión cargada: ${data.description || `${chordSequence.length} acordes`}.`, "ok");
+    }
+
+    async function fetchChordTheory(sourceNotes) {
+        const response = await fetch("/api/chord-analysis", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({
+                notes: Array.from(new Set(sourceNotes.map(voice => voice.note))),
+                tonic: rootSelect.value,
+                scale: scaleSelect.value,
+                scale_intervals: scaleSelect.value === "custom" ? customIntervals.value : null
+            })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail?.[0]?.msg || data.detail || `HTTP ${response.status}`);
+        return data.theory;
+    }
+
+    function isCompleteChord(theory) {
+        return theory?.quality !== "no determinada" && !String(theory?.chord || "").includes("(incompleto)");
+    }
+
+    function completionMessage(theory) {
+        const options = Array.isArray(theory?.completion_options) ? theory.completion_options : [];
+        if (options.length === 1) {
+            return `Falta ${options[0].missing_notes.join(", ")} para completar ${options[0].chord}. Pulsa “Completar acorde sugerido” o añádela manualmente.`;
+        }
+        if (options.length > 1) {
+            return "El conjunto no determina un único acorde. Elige una forma de completarlo o ajusta las notas manualmente; Composer no adivinará una sola opción.";
+        }
+        return "No hay un único acorde cerrado que conserve todas estas notas. Puedes mantenerlo como color armónico y elegir abajo una transición funcional hacia la tónica.";
+    }
+
+    async function buildProgression() {
+        const sourceNotes = selectedVoiceEntries();
+        const length = Number(progressionLength.value);
+        if (sourceNotes.length < 2) {
+            setMidiStatus("Selecciona al menos dos notas antes de construir una progresión.", "error");
+            return;
+        }
+        if (!Number.isInteger(length) || length < 2 || length > 8) {
+            setMidiStatus("Elige una progresión de entre 2 y 8 acordes.", "error");
+            return;
+        }
+
+        buildProgressionButton.disabled = true;
+        buildProgressionButton.textContent = "Comprobando acorde…";
+        try {
+            const theory = await fetchChordTheory(sourceNotes);
+            showSuggestions(theory);
+            const selectedTransition = transitionOptions.find(option => option.id === activeTransitionId);
+            const useColourOrigin = !isCompleteChord(theory) && Boolean(selectedTransition);
+            if (!isCompleteChord(theory) && !useColourOrigin) {
+                responseBox.style.display = "block";
+                responseBox.className = "analysis-response";
+                responseBox.textContent = completionMessage(theory);
+                setMidiStatus("Completa el acorde o elige una transición desde este color armónico.", "error");
+                return;
+            }
+
+            if (chordSequence.length && !window.confirm("La progresión sustituirá la cadena MIDI guardada actual. ¿Continuar?")) {
+                return;
+            }
+
+            buildProgressionButton.textContent = "Construyendo progresión…";
+            setMidiStatus("Construyendo acordes completos y sus enlaces…");
+            const response = await fetch("/api/progression", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({
+                    notes: sourceNotes,
+                    tonic: rootSelect.value,
+                    scale: scaleSelect.value,
+                    scale_intervals: scaleSelect.value === "custom" ? customIntervals.value : null,
+                    style: selectedTransition?.style || progressionStyle.value,
+                    length: selectedTransition?.length || length,
+                    duration_beats: Number(sequenceDuration.value),
+                    allow_unresolved_source: useColourOrigin
+                })
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.detail?.[0]?.msg || data.detail || `HTTP ${response.status}`);
+            loadGeneratedProgression(data);
+        } catch (error) {
+            setMidiStatus(`No se pudo construir la progresión: ${error.message}`, "error");
+        } finally {
+            buildProgressionButton.disabled = false;
+            buildProgressionButton.textContent = "Construir progresión desde el acorde";
+        }
+    }
+
+    function importMidiEvents(data) {
+        if (!data || !Array.isArray(data.events) || !data.events.length) {
+            throw new Error("El MIDI no contiene bloques de notas importables.");
+        }
+        const importedEvents = [];
+        for (const candidate of data.events) {
+            const event = normalizeSequenceEvent(candidate);
+            if (event) importedEvents.push(event);
+        }
+        if (!importedEvents.length) {
+            throw new Error("Las notas del MIDI no están dentro del rango compatible.");
+        }
+
+        stopChainPlayback();
+        chordSequence.splice(0, chordSequence.length, ...importedEvents);
+        sequenceEventId = Math.max(sequenceEventId, ...chordSequence.map(event => event.id), 0);
+        const tempo = Number(data.tempo);
+        if (Number.isInteger(tempo) && tempo >= 30 && tempo <= 300) tempoInput.value = String(tempo);
+        const meter = `${data.beats_per_bar}/${data.beat_unit}`;
+        if (Array.from(meterSelect.options).some(option => option.value === meter)) meterSelect.value = meter;
+        persistComposerState();
+        renderChordSequence();
+
+        const warnings = Array.isArray(data.warnings) ? data.warnings.filter(Boolean) : [];
+        const summary = `MIDI importado: ${chordSequence.length} ${chordSequence.length === 1 ? "bloque" : "bloques"}.`;
+        setMidiStatus(warnings.length ? `${summary} ${warnings.join(" ")}` : summary, warnings.length ? "" : "ok");
+    }
+
+    async function importMidiFile(file) {
+        if (!file) return;
+        if (file.size > 2 * 1024 * 1024) {
+            setMidiStatus("El MIDI supera el límite local de 2 MB.", "error");
+            return;
+        }
+        if (chordSequence.length && !window.confirm("Importar el MIDI sustituirá la cadena guardada actual. ¿Continuar?")) {
+            return;
+        }
+
+        importMidiButton.disabled = true;
+        importMidiButton.textContent = "Leyendo MIDI…";
+        setMidiStatus("Importando MIDI localmente…");
+        try {
+            const response = await fetch("/api/import/midi", {
+                method: "POST",
+                headers: {"Content-Type": file.type || "application/octet-stream"},
+                body: await file.arrayBuffer()
+            });
+            let data;
+            try {
+                data = await response.json();
+            } catch (_) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
+            importMidiEvents(data);
+        } catch (error) {
+            setMidiStatus(`No se pudo importar el MIDI: ${error.message}`, "error");
+        } finally {
+            midiImportInput.value = "";
+            importMidiButton.disabled = false;
+            importMidiButton.textContent = "⇧ Importar MIDI";
+        }
+    }
+
+    async function prepareAudioContext() {
+        audioContext ??= new (window.AudioContext || window.webkitAudioContext)();
+        if (audioContext.state === "suspended") await audioContext.resume();
+        return audioContext;
+    }
+
+    async function playVoices(voices, duration = 1.15, stagger = 0, baseDelay = 0) {
+        if (!voices.length) return;
+        await prepareAudioContext();
+        voices.forEach((voice, index) => {
+            scheduleTone(
+                voice.note,
+                voice.octave,
+                baseDelay + index * stagger,
+                duration,
+                voice.velocity
+            );
+        });
+    }
+
+    function scheduleTone(note, octave, delay = 0, duration = 0.8, velocity = 84, trackedOscillators = null) {
+        const oscillator = audioContext.createOscillator();
+        const gain = audioContext.createGain();
+        const start = audioContext.currentTime + delay;
+        const level = 0.025 + readVelocity(velocity) / 127 * 0.145;
+        oscillator.type = "triangle";
+        oscillator.frequency.value = frequency(note, octave);
+        gain.gain.setValueAtTime(0.0001, start);
+        gain.gain.exponentialRampToValueAtTime(level, start + 0.025);
+        gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+        oscillator.connect(gain).connect(audioContext.destination);
+        if (trackedOscillators) {
+            trackedOscillators.add(oscillator);
+            oscillator.addEventListener("ended", () => trackedOscillators.delete(oscillator), {once: true});
+        }
+        oscillator.start(start);
+        oscillator.stop(start + duration + 0.03);
+    }
+
+    function stopChainPlayback() {
+        if (chainPlaybackTimer !== null) {
+            window.clearTimeout(chainPlaybackTimer);
+            chainPlaybackTimer = null;
+        }
+        for (const oscillator of chainOscillators) {
+            try {
+                oscillator.stop();
+            } catch (_) {}
+        }
+        chainOscillators.clear();
+        chainIsPlaying = false;
+        playSequenceButton.textContent = "▶ Reproducir cadena";
+        playSequenceButton.disabled = chordSequence.length === 0;
+    }
+
+    async function playChordSequence() {
+        if (chainIsPlaying) {
+            stopChainPlayback();
+            setMidiStatus("Reproducción de la cadena detenida.");
+            return;
+        }
+        if (!chordSequence.length) {
+            setMidiStatus("Añade o genera acordes antes de reproducir la cadena.", "error");
+            return;
+        }
+
+        const tempo = Number(tempoInput.value);
+        if (!Number.isInteger(tempo) || tempo < 30 || tempo > 300) {
+            setMidiStatus("El tempo debe ser un número entero entre 30 y 300 BPM.", "error");
+            return;
+        }
+
+        try {
+            await prepareAudioContext();
+            const secondsPerBeat = 60 / tempo;
+            let cursorBeats = 0;
+            for (const event of chordSequence) {
+                const offsetBeats = Number(event.offsetBeats);
+                const durationBeats = Number(event.durationBeats);
+                if (!Number.isFinite(offsetBeats) || offsetBeats < 0 || !Number.isFinite(durationBeats) || durationBeats <= 0) {
+                    throw new Error("La cadena contiene una duración o silencio no válido.");
+                }
+                cursorBeats += offsetBeats;
+                const delay = 0.05 + cursorBeats * secondsPerBeat;
+                const duration = Math.max(0.05, durationBeats * secondsPerBeat - 0.02);
+                event.notes.forEach(voice => {
+                    scheduleTone(voice.note, voice.octave, delay, duration, voice.velocity, chainOscillators);
+                });
+                cursorBeats += durationBeats;
+            }
+            chainIsPlaying = true;
+            playSequenceButton.textContent = "■ Detener cadena";
+            playSequenceButton.disabled = false;
+            setMidiStatus(`Reproduciendo ${chordSequence.length} ${chordSequence.length === 1 ? "acorde" : "acordes"} a ${tempo} BPM.`, "ok");
+            const totalMilliseconds = Math.ceil((0.05 + cursorBeats * secondsPerBeat + 0.08) * 1000);
+            chainPlaybackTimer = window.setTimeout(() => {
+                stopChainPlayback();
+                setMidiStatus("Reproducción de la cadena terminada.", "ok");
+            }, totalMilliseconds);
+        } catch (error) {
+            stopChainPlayback();
+            setMidiStatus(`No se pudo reproducir la cadena: ${error.message}`, "error");
+        }
+    }
+
+    function playTone(note, octave, delay = 0, duration = 0.8, velocity = 84) {
+        return playVoices([{note, octave, velocity}], duration, 0, delay).catch(() => {
+            // La selección musical continúa aunque el navegador no habilite audio todavía.
+        });
+    }
+
+    function renderKeyboard() {
+        let whiteIndex = 0;
+        keyboard.replaceChildren();
+        for (let octave = pianoOctave; octave <= pianoOctave + 1; octave++) {
+            for (const note of notes) {
+                const isBlack = note.includes("#");
+                const key = document.createElement("button");
+                key.type = "button";
+                key.className = `key ${isBlack ? "black-key" : "white-key"}`;
+                key.dataset.note = note;
+                key.dataset.octave = octave;
+                key.setAttribute("aria-label", `${note}${octave}`);
+                key.setAttribute("aria-pressed", "false");
+                if (isBlack) key.style.left = `${whiteIndex * 40}px`;
+                else whiteIndex++;
+
+                const label = document.createElement("span");
+                label.className = "note-label";
+                label.textContent = `${note}${octave}`;
+                key.appendChild(label);
+
+                key.addEventListener("click", () => togglePitch(note, octave));
+                keyboard.appendChild(key);
+            }
+        }
+        pianoOctaveDisplay.textContent = `${pianoOctave}–${pianoOctave + 1}`;
+        syncPitchState();
+    }
+
+    function togglePitch(note, octave) {
+        const key = voiceKey(note, octave);
+        if (!selectedVoices.has(key)) {
+            const voice = {note, octave, velocity: readVelocity(newNoteVelocity.value)};
+            selectedVoices.set(key, voice);
+            playTone(note, octave, 0, 0.8, voice.velocity);
+        } else {
+            selectedVoices.delete(key);
+        }
+        invalidateAnalysis();
+        clearSuggestions();
+        syncPitchState();
+        updateDisplay();
+    }
+
+    function invalidateAnalysis() {
+        analysisRequest += 1;
+        responseBox.style.display = "none";
+        document.getElementById("chord-display").textContent = "pendiente";
+    }
+
+    function updateDisplay() {
+        const chosen = selectedVoiceEntries();
+        document.getElementById("notes-display").textContent = chosen.length
+            ? chosen.map(voice => `${voice.note}${voice.octave}`).join(", ")
+            : "Ninguna";
+        if (!chosen.length) document.getElementById("chord-display").textContent = "pendiente";
+    }
+
+    function updateTransitionDisplay() {
+        const sourceNotes = selectedVoiceEntries().map(voice => `${voice.note}${voice.octave}`);
+        const missingNotes = notes.filter(note => completionNotes.has(note));
+        const transitionRoots = notes.filter(note => suggestedNotes.has(note));
+        sourceChordDisplay.textContent = sourceNotes.length ? sourceNotes.join(", ") : "Ninguno";
+        completionNotesDisplay.textContent = missingNotes.length
+            ? missingNotes.join(", ")
+            : (completionOptions.length > 1 ? "Elige una propuesta" : "No necesario");
+        transitionRootsDisplay.textContent = transitionRoots.length ? transitionRoots.join(", ") : "Sin propuesta";
+    }
+
+    function syncPitchState() {
+        document.querySelectorAll("[data-note]").forEach(control => {
+            const note = control.dataset.note;
+            const active = selectedVoices.has(voiceKey(note, Number(control.dataset.octave)));
+            const inScale = currentScaleNotes.has(note) && (
+                control.classList.contains("push-pad") || pushMode.value === "in-key"
+            );
+            control.classList.toggle("active", active);
+            control.classList.toggle("completion", completionNotes.has(note));
+            control.classList.toggle("suggested", suggestedNotes.has(note));
+            control.classList.toggle("in-scale", inScale);
+            control.classList.toggle("root", note === rootSelect.value);
+            control.setAttribute("aria-pressed", String(active));
+        });
+        updateTransitionDisplay();
+    }
+
+    function clearSuggestions() {
+        completionNotes.clear();
+        suggestedNotes.clear();
+        completionOptions = [];
+        activeCompletionOption = null;
+        transitionOptions = [];
+        activeTransitionId = null;
+        transitionSelectionSignature = "";
+        completionAction.hidden = true;
+        completionGuidance.textContent = "";
+        completionOptionsBox.replaceChildren();
+        applyCompletionButton.disabled = true;
+        applyCompletionButton.textContent = "＋ Completar acorde sugerido";
+        transitionAction.hidden = true;
+        transitionGuidance.textContent = "";
+        transitionOptionsBox.replaceChildren();
+        syncPitchState();
+    }
+
+    function normalizeCompletionOptions(theory) {
+        if (!Array.isArray(theory?.completion_options)) return [];
+        return theory.completion_options.filter(option => (
+            option && typeof option.chord === "string" && Array.isArray(option.missing_notes)
+            && option.missing_notes.length && option.missing_notes.every(note => notes.includes(note))
+        ));
+    }
+
+    function normalizeTransitionOptions(theory) {
+        if (!Array.isArray(theory?.transition_options)) return [];
+        return theory.transition_options.filter(option => (
+            option && typeof option.id === "string" && typeof option.style === "string"
+            && typeof option.label === "string" && typeof option.path === "string"
+            && Number.isInteger(option.length) && option.length >= 2 && option.length <= 8
+        ));
+    }
+
+    function renderCompletionActions() {
+        completionOptionsBox.replaceChildren();
+        completionAction.hidden = completionOptions.length === 0;
+        if (!completionOptions.length) return;
+
+        if (!activeCompletionOption) {
+            completionGuidance.textContent = "Hay varias formas cercanas de cerrar este conjunto. Elige una: ninguna se aplicará automáticamente.";
+            applyCompletionButton.disabled = true;
+            applyCompletionButton.textContent = "＋ Elige una propuesta";
+        } else {
+            const missing = activeCompletionOption.missing_notes.join(", ");
+            completionGuidance.textContent = `Para completar ${activeCompletionOption.chord}, añade: ${missing}. Puedes aplicarlo o tocar esas notas manualmente.`;
+            applyCompletionButton.disabled = false;
+            applyCompletionButton.textContent = `＋ Completar ${activeCompletionOption.chord}`;
+        }
+
+        if (completionOptions.length > 1) {
+            completionOptions.forEach(option => {
+                const choice = document.createElement("button");
+                choice.type = "button";
+                choice.className = "secondary";
+                choice.textContent = `${option.chord} · añadir ${option.missing_notes.join(", ")}`;
+                choice.classList.toggle("active", option === activeCompletionOption);
+                choice.addEventListener("click", () => {
+                    activeCompletionOption = option;
+                    completionNotes.clear();
+                    option.missing_notes.forEach(note => completionNotes.add(note));
+                    renderCompletionActions();
+                    syncPitchState();
+                });
+                completionOptionsBox.appendChild(choice);
+            });
+        }
+    }
+
+    function renderTransitionActions() {
+        transitionOptionsBox.replaceChildren();
+        transitionAction.hidden = transitionOptions.length === 0;
+        if (!transitionOptions.length) return;
+
+        const active = transitionOptions.find(option => option.id === activeTransitionId);
+        transitionGuidance.textContent = active
+            ? `Ruta elegida: ${active.label} (${active.path}). Composer conservará tus notas como color de origen y cerrará en la tónica.`
+            : "No hay un acorde único que conserve todas las notas. Puedes tratarlas como color de origen y elegir una ruta de resolución:";
+
+        transitionOptions.forEach(option => {
+            const choice = document.createElement("button");
+            choice.type = "button";
+            choice.className = "secondary";
+            choice.textContent = `${option.label} · ${option.path}`;
+            choice.classList.toggle("active", option.id === activeTransitionId);
+            choice.addEventListener("click", () => {
+                activeTransitionId = option.id;
+                transitionSelectionSignature = harmonicSelectionSignature();
+                progressionStyle.value = option.style;
+                if (Array.from(progressionLength.options).some(item => Number(item.value) === option.length)) {
+                    progressionLength.value = String(option.length);
+                }
+                renderTransitionActions();
+                setMidiStatus(`Ruta elegida: ${option.label}. Pulsa “Construir progresión desde el acorde”.`, "ok");
+            });
+            transitionOptionsBox.appendChild(choice);
+        });
+    }
+
+    function preferredCompletionOctave(note) {
+        const selected = selectedVoiceEntries();
+        const target = selected.reduce((sum, voice) => sum + midiNumber(voice.note, voice.octave), 0) / selected.length;
+        let bestOctave = 3;
+        let bestDistance = Number.POSITIVE_INFINITY;
+        for (let octave = 0; octave <= 8; octave++) {
+            const distance = Math.abs(midiNumber(note, octave) - target);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                bestOctave = octave;
+            }
+        }
+        return bestOctave;
+    }
+
+    function applyCompletionSuggestion() {
+        if (!activeCompletionOption) return;
+        const added = [];
+        activeCompletionOption.missing_notes.forEach(note => {
+            const octave = preferredCompletionOctave(note);
+            const key = voiceKey(note, octave);
+            if (!selectedVoices.has(key)) {
+                const voice = {note, octave, velocity: readVelocity(newNoteVelocity.value)};
+                selectedVoices.set(key, voice);
+                added.push(voice);
+            }
+        });
+        const completedChord = activeCompletionOption.chord;
+        invalidateAnalysis();
+        clearSuggestions();
+        document.getElementById("chord-display").textContent = completedChord;
+        updateDisplay();
+        setMidiStatus(`Acorde completado: ${completedChord}. Ya puedes construir o editar la progresión.`, "ok");
+        void playVoices(selectedVoiceEntries()).catch(() => {
+            setMidiStatus("El acorde se completó, pero el navegador no pudo iniciar el audio todavía.", "error");
+        });
+    }
+
+    function showSuggestions(theory) {
+        const signature = harmonicSelectionSignature();
+        const previousTransitionId = transitionSelectionSignature === signature ? activeTransitionId : null;
+        completionNotes.clear();
+        suggestedNotes.clear();
+        completionOptions = normalizeCompletionOptions(theory);
+        activeCompletionOption = completionOptions.length === 1 ? completionOptions[0] : null;
+        transitionOptions = normalizeTransitionOptions(theory);
+        activeTransitionId = transitionOptions.some(option => option.id === previousTransitionId)
+            ? previousTransitionId
+            : null;
+        if (!activeTransitionId) transitionSelectionSignature = "";
+        document.getElementById("chord-display").textContent = theory.chord;
+        for (const note of activeCompletionOption?.missing_notes || theory.missing_notes || []) {
+            completionNotes.add(note);
+        }
+        for (const note of theory.next_roots || []) {
+            suggestedNotes.add(note);
+        }
+        renderCompletionActions();
+        renderTransitionActions();
+        syncPitchState();
+    }
+
+    function setMicrophoneStatus(message, status = "") {
+        microphoneStatus.textContent = message;
+        microphoneStatus.className = `microphone-status ${status}`.trim();
+    }
+
+    async function loadAudioCaptureModule() {
+        if (audioCaptureModule) return audioCaptureModule;
+        try {
+            audioCaptureModule = await import("/assets/composer_audio.js");
+            return audioCaptureModule;
+        } catch (error) {
+            audioCaptureModule = null;
+            throw error;
+        }
+    }
+
+    function applyCapturedVoices(midiValues, midiToVoice) {
+        selectedVoices.clear();
+        for (const midi of midiValues) {
+            const voice = midiToVoice(midi);
+            if (!voice) continue;
+            voice.velocity = readVelocity(newNoteVelocity.value);
+            selectedVoices.set(voiceKey(voice.note, voice.octave), voice);
+        }
+        invalidateAnalysis();
+        clearSuggestions();
+        syncPitchState();
+        updateDisplay();
+    }
+
+    async function adviseCapturedChord(capture) {
+        const sourceNotes = selectedVoiceEntries();
+        const theory = await fetchChordTheory(sourceNotes);
+        showSuggestions(theory);
+        const namedNotes = sourceNotes.map(voice => `${voice.note}${voice.octave}`).join(", ");
+        const confidence = Math.round(capture.confidence * 100);
+        responseBox.style.display = "block";
+        responseBox.className = "analysis-response";
+        responseBox.textContent = `${theory.chord}. Escucha local: ${namedNotes} · confianza ${confidence}%. ${isCompleteChord(theory) ? "Revisa las rutas de transición propuestas." : completionMessage(theory)}`;
+    }
+
+    async function listenForChord() {
+        if (microphoneAbortController) return;
+        if (location.protocol === "file:") {
+            setMicrophoneStatus("El micrófono requiere Composer abierto desde el servidor, no como archivo local.", "error");
+            return;
+        }
+        microphoneAbortController = new AbortController();
+        listenChordButton.disabled = true;
+        stopListeningButton.hidden = false;
+        setMicrophoneStatus("Escuchando durante unos 3 segundos… toca el acorde una vez, con el menor ruido posible.");
+        try {
+            const {captureChordFromMicrophone, midiToVoice} = await loadAudioCaptureModule();
+            const capture = await captureChordFromMicrophone({
+                durationMs: 2600,
+                signal: microphoneAbortController.signal,
+                onProgress: progress => {
+                    if (progress.frameCount % 8 === 0) {
+                        setMicrophoneStatus("Escuchando… mantén el acorde hasta que termine la toma.");
+                    }
+                },
+            });
+            if (!capture.midi.length) {
+                setMicrophoneStatus("No hubo notas suficientemente estables. Acerca el micrófono, reduce el ruido o marca las notas manualmente.", "error");
+                return;
+            }
+            applyCapturedVoices(capture.midi, midiToVoice);
+            await adviseCapturedChord(capture);
+            setMicrophoneStatus(`Notas detectadas con ${Math.round(capture.confidence * 100)}% de estabilidad. Puedes completar el acorde o elegir una transición.`, "ok");
+        } catch (error) {
+            if (error?.name === "AbortError") {
+                setMicrophoneStatus("Escucha detenida. No se guardó ni envió audio.");
+            } else {
+                setMicrophoneStatus(`No se pudo usar el micrófono: ${error.message}`, "error");
+            }
+        } finally {
+            microphoneAbortController = null;
+            listenChordButton.disabled = false;
+            stopListeningButton.hidden = true;
+        }
+    }
+
+    document.getElementById("play-btn").addEventListener("click", () => {
+        const chord = selectedVoiceEntries();
+        if (!chord.length) {
+            setMidiStatus("Selecciona notas antes de escuchar el acorde.", "error");
+            return;
+        }
+        void playVoices(chord).catch(() => {
+            setMidiStatus("El navegador no pudo iniciar el audio. Toca una nota y vuelve a intentarlo.", "error");
+        });
+    });
+
+    listenChordButton.addEventListener("click", () => {
+        void listenForChord();
+    });
+    stopListeningButton.addEventListener("click", () => microphoneAbortController?.abort());
+
+    applyCompletionButton.addEventListener("click", applyCompletionSuggestion);
+
+    document.getElementById("clear-btn").addEventListener("click", () => {
+        invalidateAnalysis();
+        selectedVoices.clear();
+        completionNotes.clear();
+        suggestedNotes.clear();
+        syncPitchState();
+        responseBox.style.display = "none";
+        document.getElementById("emotion").value = "";
+        updateDisplay();
+    });
+
+    document.getElementById("add-chord-btn").addEventListener("click", addCurrentChordToSequence);
+    buildProgressionButton.addEventListener("click", buildProgression);
+    newNoteVelocity.addEventListener("input", () => {
+        newNoteVelocityOutput.textContent = String(readVelocity(newNoteVelocity.value));
+        persistComposerState();
+    });
+    tempoInput.addEventListener("change", persistComposerState);
+    meterSelect.addEventListener("change", persistComposerState);
+    sequenceDuration.addEventListener("change", persistComposerState);
+    importMidiButton.addEventListener("click", () => midiImportInput.click());
+    midiImportInput.addEventListener("change", () => importMidiFile(midiImportInput.files?.[0]));
+    exportMidiButton.addEventListener("click", exportMidi);
+    playSequenceButton.addEventListener("click", () => {
+        void playChordSequence();
+    });
+    clearSequenceButton.addEventListener("click", () => {
+        stopChainPlayback();
+        chordSequence.splice(0, chordSequence.length);
+        clearPersistedComposerState();
+        setMidiStatus("Cadena MIDI vaciada.");
+        renderChordSequence();
+    });
+
+    function updateCustomScaleControl() {
+        const useCustom = scaleSelect.value === "custom";
+        customScaleControl.hidden = !useCustom;
+        customIntervals.disabled = !useCustom;
+        pianoCustomScaleControl.hidden = !useCustom;
+        pianoCustomIntervals.disabled = !useCustom;
+    }
+
+    function syncPianoControls(copyScaleOptions = false) {
+        if (copyScaleOptions) {
+            pianoScaleSelect.replaceChildren(
+                ...Array.from(scaleSelect.children, child => child.cloneNode(true))
+            );
+        }
+        pianoRootSelect.value = rootSelect.value;
+        pianoScaleSelect.value = scaleSelect.value;
+        pianoModeSelect.value = pushMode.value;
+        pianoCustomIntervals.value = customIntervals.value;
+        pianoOctaveDisplay.textContent = `${pianoOctave}–${pianoOctave + 1}`;
+    }
+
+    function renderScaleCatalog(scales) {
+        const previousScale = scaleSelect.value;
+        const groups = new Map();
+        for (const scale of scales) {
+            if (!groups.has(scale.family)) groups.set(scale.family, []);
+            groups.get(scale.family).push(scale);
+        }
+        scaleSelect.replaceChildren();
+        for (const [family, familyScales] of groups) {
+            const group = document.createElement("optgroup");
+            group.label = family;
+            for (const scale of familyScales) {
+                const option = document.createElement("option");
+                option.value = scale.id;
+                option.textContent = scale.label;
+                group.appendChild(option);
+            }
+            scaleSelect.appendChild(group);
+        }
+        const customGroup = document.createElement("optgroup");
+        customGroup.label = "Personalizada";
+        const customOption = document.createElement("option");
+        customOption.value = "custom";
+        customOption.textContent = "Personalizada por intervalos";
+        customGroup.appendChild(customOption);
+        scaleSelect.appendChild(customGroup);
+        scaleSelect.value = Array.from(scaleSelect.options).some(option => option.value === previousScale)
+            ? previousScale
+            : "major";
+        updateCustomScaleControl();
+        syncPianoControls(true);
+    }
+
+    async function loadScaleCatalog() {
+        if (location.protocol === "file:") return;
+        try {
+            const response = await fetch("/api/scales", {cache: "no-store"});
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const data = await response.json();
+            renderScaleCatalog(data.scales);
+        } catch (_) {
+            updateCustomScaleControl();
+        }
+    }
+
+    async function renderPushGrid() {
+        if (location.protocol === "file:") {
+            pushGrid.replaceChildren();
+            const message = document.createElement("p");
+            message.className = "push-caption";
+            message.textContent = "Abre Composer desde el servidor local para cargar la rejilla y el catálogo completo.";
+            pushGrid.appendChild(message);
+            return;
+        }
+        const requestId = ++pushGridRequest;
+        const params = new URLSearchParams({
+            root: rootSelect.value,
+            scale: scaleSelect.value,
+            mode: pushMode.value,
+            octave: String(pushOctave)
+        });
+        if (scaleSelect.value === "custom") params.set("intervals", customIntervals.value);
+        pushGrid.setAttribute("aria-busy", "true");
+        try {
+            const response = await fetch(`/api/push-grid?${params}`, {cache: "no-store"});
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const data = await response.json();
+            if (requestId !== pushGridRequest) return;
+
+            currentScaleNotes = new Set(data.scale_notes || []);
+            pushGrid.replaceChildren();
+            for (const row of data.grid) {
+                for (const padData of row) {
+                    const pad = document.createElement("button");
+                    pad.type = "button";
+                    pad.className = "push-pad";
+                    pad.dataset.note = padData.note;
+                    pad.dataset.octave = padData.octave;
+                    pad.classList.toggle("root", padData.is_root);
+                    pad.classList.toggle("in-scale", padData.in_scale);
+                    pad.setAttribute("aria-label", `${padData.note}${padData.octave}${padData.is_root ? ", tónica" : ""}`);
+                    pad.setAttribute("aria-pressed", "false");
+                    pad.textContent = `${padData.note}${padData.octave}`;
+                    pad.addEventListener("click", () => togglePitch(padData.note, padData.octave));
+                    pushGrid.appendChild(pad);
+                }
+            }
+            syncPitchState();
+        } catch (error) {
+            if (requestId !== pushGridRequest) return;
+            pushGrid.replaceChildren();
+            const message = document.createElement("p");
+            message.className = "push-caption";
+            message.textContent = "La rejilla no pudo cargar. El servidor Composer necesita estar activo.";
+            pushGrid.appendChild(message);
+        } finally {
+            if (requestId === pushGridRequest) pushGrid.removeAttribute("aria-busy");
+        }
+    }
+
+    function setSurface(surface) {
+        const usePush = surface === "push";
+        document.getElementById("push-surface").hidden = !usePush;
+        document.getElementById("piano-surface").hidden = usePush;
+        document.getElementById("push-tab").setAttribute("aria-selected", String(usePush));
+        document.getElementById("piano-tab").setAttribute("aria-selected", String(!usePush));
+    }
+
+    function resetHarmonicGuide() {
+        invalidateAnalysis();
+        clearSuggestions();
+    }
+
+    document.getElementById("push-tab").addEventListener("click", () => setSurface("push"));
+    document.getElementById("piano-tab").addEventListener("click", () => setSurface("piano"));
+    rootSelect.addEventListener("change", () => {
+        resetHarmonicGuide();
+        syncPianoControls();
+        syncPitchState();
+        renderPushGrid();
+    });
+    scaleSelect.addEventListener("change", () => {
+        resetHarmonicGuide();
+        updateCustomScaleControl();
+        syncPianoControls();
+        syncPitchState();
+        renderPushGrid();
+    });
+    pushMode.addEventListener("change", () => {
+        syncPianoControls();
+        syncPitchState();
+        renderPushGrid();
+    });
+    customIntervals.addEventListener("change", () => {
+        resetHarmonicGuide();
+        pianoCustomIntervals.value = customIntervals.value;
+        renderPushGrid();
+    });
+    pianoRootSelect.addEventListener("change", () => {
+        rootSelect.value = pianoRootSelect.value;
+        resetHarmonicGuide();
+        syncPianoControls();
+        syncPitchState();
+        renderPushGrid();
+    });
+    pianoScaleSelect.addEventListener("change", () => {
+        scaleSelect.value = pianoScaleSelect.value;
+        resetHarmonicGuide();
+        updateCustomScaleControl();
+        syncPianoControls();
+        syncPitchState();
+        renderPushGrid();
+    });
+    pianoModeSelect.addEventListener("change", () => {
+        pushMode.value = pianoModeSelect.value;
+        syncPianoControls();
+        syncPitchState();
+        renderPushGrid();
+    });
+    pianoCustomIntervals.addEventListener("change", () => {
+        customIntervals.value = pianoCustomIntervals.value;
+        resetHarmonicGuide();
+        renderPushGrid();
+    });
+    document.getElementById("push-octave-down").addEventListener("click", () => {
+        pushOctave = Math.max(0, pushOctave - 1);
+        pushOctaveDisplay.textContent = String(pushOctave);
+        renderPushGrid();
+    });
+    document.getElementById("push-octave-up").addEventListener("click", () => {
+        pushOctave = Math.min(7, pushOctave + 1);
+        pushOctaveDisplay.textContent = String(pushOctave);
+        renderPushGrid();
+    });
+    document.getElementById("piano-octave-down").addEventListener("click", () => {
+        pianoOctave = Math.max(0, pianoOctave - 1);
+        renderKeyboard();
+    });
+    document.getElementById("piano-octave-up").addEventListener("click", () => {
+        pianoOctave = Math.min(6, pianoOctave + 1);
+        renderKeyboard();
+    });
+
+    async function analyze() {
+        if (!selectedVoices.size) {
+            responseBox.style.display = "block";
+            responseBox.className = "error";
+            responseBox.textContent = "Selecciona al menos una nota en el teclado.";
+            return;
+        }
+        const button = document.getElementById("ask-btn");
+        const requestId = ++analysisRequest;
+        const requestedNotes = notes.filter(note => selectedPitchClasses().has(note));
+        const requestedEmotion = document.getElementById("emotion").value || "Neutro, buscando progresiones naturales";
+        button.disabled = true;
+        button.textContent = "Cerebro pensando…";
+        responseBox.style.display = "block";
+        responseBox.className = "";
+        responseBox.textContent = "Analizando intervalos, escalas y progresiones…";
+        startAnalysisProgress();
+
+        try {
+            const res = await fetch("/api/compose", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({
+                    notes: requestedNotes,
+                    emotion: requestedEmotion,
+                    tonic: rootSelect.value,
+                    scale: scaleSelect.value,
+                    scale_intervals: scaleSelect.value === "custom" ? customIntervals.value : null
+                })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail?.[0]?.msg || `HTTP ${res.status}`);
+            if (requestId !== analysisRequest) return;
+            responseBox.className = "analysis-response";
+            responseBox.textContent = data.response;
+            showSuggestions(data.theory);
+        } catch (error) {
+            if (requestId !== analysisRequest) return;
+            responseBox.className = "error";
+            responseBox.textContent = `Error al conectar con Cerebro: ${error.message}`;
+        } finally {
+            stopAnalysisProgress();
+            button.disabled = false;
+            button.textContent = "Analizar con Cerebro";
+        }
+    }
+
+    document.getElementById("ask-btn").addEventListener("click", analyze);
+    document.getElementById("emotion").addEventListener("keydown", event => {
+        if (event.key === "Enter") analyze();
+    });
+
+    async function checkHealth() {
+        const status = document.getElementById("server-status");
+        if (location.protocol === "file:") {
+            status.textContent = "● Copia local: abre Composer desde el servidor";
+            status.className = "status partial";
+            return;
+        }
+        try {
+            const res = await fetch("/api/health", {cache: "no-store"});
+            const data = await res.json();
+            const aiOnline = data.ai === "online";
+            status.textContent = aiOnline ? "● Servidor + IA online" : "● Teoría online · IA offline";
+            status.className = `status ${aiOnline ? "online" : "partial"}`;
+        } catch (_) {
+            status.textContent = "● Servidor desconectado";
+            status.className = "status partial";
+        }
+    }
+
+    async function initializeComposer() {
+        document.getElementById("file-protocol-notice").hidden = location.protocol !== "file:";
+        syncPianoControls(true);
+        renderKeyboard();
+        const restoredEvents = restoreComposerState();
+        renderChordSequence();
+        await loadScaleCatalog();
+        checkHealth();
+        updateDisplay();
+        renderPushGrid();
+        if (restoredEvents) {
+            setMidiStatus(`Cadena local restaurada: ${restoredEvents} ${restoredEvents === 1 ? "bloque" : "bloques"}.`, "ok");
+        }
+    }
+
+    initializeComposer();
+</script>
+</body>
+</html>

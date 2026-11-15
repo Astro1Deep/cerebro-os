@@ -1,0 +1,3 @@
+-r requirements-beta.txt
+# Sólo para Apple Silicon: MLX no es el motor de la edición Intel/Windows.
+mlx-lm>=0.27,<1

@@ -1,0 +1,43 @@
+# Runtime state and local databases
+__pycache__/
+*.py[cod]
+*.pid
+*.log
+logs/
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# Models, caches and generated media
+venv/
+hf_cache/
+models/
+*.wav
+
+# Secrets and machine-local configuration
+.DS_Store
+.composer_lan_token
+.webui_secret_key
+config.env
+admin.txt
+telegram_roles.json
+.env
+.env.*
+!.env.example
+
+# Backups are retained outside source control
+backups/
+mayordomo_destinos/
+
+# Tools' local state
+.aider.*
+
+# Local integration state
+knowledge/
+runtime/
+telegram_capabilities.json
+beatos_bridge.json
+dist/
+patch-backups/
+ecosystem_theme.json
