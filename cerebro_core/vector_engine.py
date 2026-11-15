@@ -11,6 +11,7 @@ import pyarrow as pa
 import lancedb
 import requests
 import json
+import re
 import numpy as np
 
 from cerebro_core.local_endpoint import local_http_session, validate_loopback_endpoint
@@ -28,6 +29,35 @@ EMBED_DIM = 1024
 EMBED_MODEL = os.environ.get("CEREBRO_EMBED_MODEL", "intfloat/multilingual-e5-large-instruct")
 EMBED_IDLE_SECONDS = float(os.environ.get("CEREBRO_EMBED_IDLE_SECONDS", "180"))
 OLLAMA_EMBED_URL = os.environ.get("CEREBRO_OLLAMA_EMBED_URL", "http://127.0.0.1:11434/api/embeddings")
+IDENTITY_KEY = b"cerebro.embedding.identity.v1"
+
+
+def _ollama_embedding_identity() -> Optional[str]:
+    """Identify the installed bge-m3 artifact; unavailable or ambiguous fails closed."""
+    try:
+        endpoint = validate_loopback_endpoint(OLLAMA_EMBED_URL, "/api/embeddings")
+        tags_url = endpoint[:-len('/api/embeddings')] + '/api/tags'
+        with local_http_session() as session:
+            response = session.get(tags_url, timeout=(2, 3), allow_redirects=False, stream=True)
+            response.raise_for_status()
+            raw = bytearray()
+            for chunk in response.iter_content(65536):
+                raw.extend(chunk)
+                if len(raw) > 1048576:
+                    return None
+        payload = json.loads(raw)
+        entries = payload.get('models', []) if isinstance(payload, dict) else []
+        matches = [m for m in entries if isinstance(m, dict) and m.get('name') in ('bge-m3', 'bge-m3:latest')]
+        if len(matches) != 1:
+            return None
+        digest = matches[0].get('digest')
+        if not isinstance(digest, str) or not re.fullmatch(r'[a-fA-F0-9]{64}', digest):
+            return None
+        return json.dumps({'provider': 'ollama', 'model': 'bge-m3:latest',
+                           'digest': digest.lower(), 'dimensions': EMBED_DIM,
+                           'preprocess': 'strip-truncate8000-l2-v1'}, sort_keys=True, separators=(',', ':'))
+    except (requests.RequestException, ValueError, TypeError, AttributeError, OSError):
+        return None
 
 
 class _EmbeddingBackend:
@@ -241,7 +271,7 @@ class VectorEngine:
             pa.field("created_at", pa.float64()),
             pa.field("metadata_json", pa.string()),
         ])
-        self._warmup_hot_cache()
+        # Legacy tables have no verified embedding identity; never warm them.
 
     def _warmup_hot_cache(self, table_name: Optional[str] = None):
         if not self.hot_cache.enabled:
@@ -278,13 +308,15 @@ class VectorEngine:
 
     def get_stats(self) -> dict[str, Any]:
         return {
-            "faiss_enabled": self.hot_cache.enabled,
-            "hot_cache_size": self.hot_cache.size(),
+            "faiss_enabled": False,
+            "hot_cache_size": 0,
             "lancedb_root": str(self.root),
             "default_table": self.default_table
         }
         
-    def get_table(self, table_name: Optional[str] = None):
+    def get_table(self, table_name: Optional[str] = None, *, identity: Optional[str] = None, create: bool = False):
+        if not identity:
+            raise ValueError("Embedding identity is required")
         tname = table_name or self.default_table
         if hasattr(self.db, "list_tables"):
             res = self.db.list_tables()
@@ -292,8 +324,34 @@ class VectorEngine:
         else:
             tables = self.db.table_names()
         if tname in tables:
-            return self.db.open_table(tname)
-        return self.db.create_table(tname, schema=self.schema)
+            table = self.db.open_table(tname)
+        elif create:
+            schema = self.schema.with_metadata({IDENTITY_KEY: identity.encode('utf-8')})
+            table = self.db.create_table(tname, schema=schema, exist_ok=True)
+        else:
+            raise ValueError("Embedding index is not available")
+        if (table.schema.metadata or {}).get(IDENTITY_KEY) != identity.encode('utf-8'):
+            raise ValueError("Embedding index identity is missing or mismatched")
+        return table
+
+    def _identified_vector(self, text: Optional[str], vector: Optional[list[float]],
+                           vector_identity: Optional[str]):
+        before = _ollama_embedding_identity()
+        if not before:
+            return None, None
+        if vector is not None:
+            # Callers supplying their own vector must declare its exact identity.
+            if vector_identity != before:
+                return None, None
+        elif text:
+            vector = self.get_embedding(text)
+        else:
+            return None, None
+        vector = _fit_dim(vector)
+        after = _ollama_embedding_identity()
+        if vector is None or before != after:
+            return None, None
+        return vector, before
 
     def get_embedding(self, text: str) -> Optional[list[float]]:
         if not text or not text.strip():
@@ -311,17 +369,18 @@ class VectorEngine:
             return []
         return [_fit_dim(v) for v in _BACKEND.encode(clean)]
 
-    def upsert(self, doc_id: str, vector: Optional[list[float]] = None, text: Optional[str] = None, table_name: Optional[str] = None, metadata: Optional[dict[str, Any]] = None) -> bool:
+    def upsert(self, doc_id: str, vector: Optional[list[float]] = None, text: Optional[str] = None, table_name: Optional[str] = None, metadata: Optional[dict[str, Any]] = None, *, vector_identity: Optional[str] = None) -> bool:
         if not doc_id:
             return False
             
-        if vector is None and text:
-            vector = self.get_embedding(text)
-        vector = _fit_dim(vector)
-        if vector is None:
+        vector, identity = self._identified_vector(text, vector, vector_identity)
+        if vector is None or identity is None:
             return False
-            
-        table = self.get_table(table_name)
+        try:
+            table = self.get_table(table_name, identity=identity, create=True)
+        except (ValueError, OSError) as exc:
+            logger.warning("[VectorEngine] Index blocked: %s", exc)
+            return False
         record = {"id": str(doc_id), "vector": vector, "text": text or "", "source": "explicit_user", "created_at": 0.0, "metadata_json": "{}"}
         
         if metadata:
@@ -344,30 +403,22 @@ class VectorEngine:
         except Exception as exc:
             logger.error("[VectorEngine] Failed to add record %s: %s", doc_id, exc)
             return False
-        if table_name is None or table_name == self.default_table:
-            try:
-                self.hot_cache.add(str(doc_id), vector, {
-                    "id": str(doc_id), "text": text or "", "source": record["source"],
-                    "created_at": record["created_at"],
-                    "metadata": json_meta if metadata else {},
-                })
-            except Exception as exc:
-                logger.warning("[VectorEngine] Cache update failed: %s", exc)
         return True
 
-    def search(self, vector: Optional[list[float]] = None, text: Optional[str] = None, limit: int = 5, table_name: Optional[str] = None) -> list[dict[str, Any]]:
-        if vector is None and text:
-            vector = self.get_embedding(text)
-        vector = _fit_dim(vector)
-        if vector is None:
+    def search(self, vector: Optional[list[float]] = None, text: Optional[str] = None, limit: int = 5, table_name: Optional[str] = None, *, vector_identity: Optional[str] = None) -> list[dict[str, Any]]:
+        vector, identity = self._identified_vector(text, vector, vector_identity)
+        if vector is None or identity is None:
             return []
 
         # 1. Búsqueda L1 Hot-Cache FAISS (~0.05ms)
-        hot_results = (self.hot_cache.search(vector, top_k=limit * 2)
-                       if table_name is None or table_name == self.default_table else [])
+        hot_results = []
             
         # 2. Búsqueda L2 persistente LanceDB
-        table = self.get_table(table_name)
+        try:
+            table = self.get_table(table_name, identity=identity)
+        except (ValueError, OSError) as exc:
+            logger.warning("[VectorEngine] Index blocked: %s", exc)
+            return []
         lancedb_results = []
         try:
             if table.count_rows() > 0:
@@ -405,8 +456,11 @@ class VectorEngine:
     def delete(self, doc_id: str, table_name: Optional[str] = None) -> bool:
         if not doc_id: return False
         clean_id = str(doc_id).replace("'", "''")
-        table = self.get_table(table_name)
+        identity = _ollama_embedding_identity()
+        if not identity:
+            return False
         try:
+            table = self.get_table(table_name, identity=identity)
             table.delete(f"id = '{clean_id}'")
             if table_name is None or table_name == self.default_table:
                 self.hot_cache.remove(str(doc_id))
