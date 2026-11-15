@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import datetime, timezone
 import hashlib
 import logging
@@ -65,7 +66,7 @@ class PersistentMemoryStore:
         return connection
 
     def _initialise(self) -> None:
-        with self._connect() as connection:
+        with closing(self._connect()) as connection, connection:
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS memories (
@@ -129,7 +130,7 @@ class PersistentMemoryStore:
 
         identifier = hashlib.sha256(f"{clean}\n{timestamp:.6f}".encode("utf-8")).hexdigest()[:16]
 
-        with self._connect() as connection:
+        with closing(self._connect()) as connection, connection:
             connection.execute(
                 "INSERT INTO memories(id, text, source, created_at) VALUES (?, ?, ?, ?)",
                 (identifier, clean, source, timestamp),
@@ -160,7 +161,7 @@ class PersistentMemoryStore:
             return []
         fts_query = " OR ".join(f'"{t}"' for t in clean_tokens)
         try:
-            with self._connect() as connection:
+            with closing(self._connect()) as connection, connection:
                 rows = connection.execute(
                     """
                     SELECT m.id, m.text, m.source, m.created_at, bm25(memories_fts) AS bm25_rank
@@ -283,7 +284,7 @@ class PersistentMemoryStore:
     def list_recent(self, *, limit: int = 20) -> list[dict[str, object]]:
         if not isinstance(limit, int) or limit < 1 or limit > 100:
             raise PersistentMemoryError("El límite de recuerdos recientes debe ser entre 1 y 100")
-        with self._connect() as connection:
+        with closing(self._connect()) as connection, connection:
             rows = connection.execute(
                 "SELECT id, text, source, created_at FROM memories ORDER BY created_at DESC LIMIT ?", (limit,)
             ).fetchall()
@@ -294,7 +295,7 @@ class PersistentMemoryStore:
             return False
 
         found = False
-        with self._connect() as connection:
+        with closing(self._connect()) as connection, connection:
             cur = connection.execute("DELETE FROM memories WHERE id = ?", (identifier,))
             if cur.rowcount > 0:
                 found = True
