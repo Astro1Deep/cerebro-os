@@ -3,7 +3,7 @@ from pathlib import Path
 from unittest.mock import patch
 import pytest
 
-from cerebro_core.vector_engine import VectorEngine, _fit_dim
+from cerebro_core.vector_engine import VectorEngine, _EmbeddingBackend, _fit_dim
 
 
 def vec(n=0):
@@ -18,6 +18,13 @@ def test_reject_invalid_vector_dimensions_and_nonfinite_values():
     assert _fit_dim([float('nan')] * 1024) is None
     assert _fit_dim([0] * 1024) is None
     assert _fit_dim(vec()) == vec()
+
+
+def test_missing_bge_does_not_switch_to_incompatible_native_embeddings():
+    backend = _EmbeddingBackend()
+    with patch.object(backend, '_encode_ollama', return_value=[None]), \
+         patch.object(backend, '_load', side_effect=AssertionError('unsafe fallback')):
+        assert backend.encode(['example']) == [None]
 
 
 def test_failed_replacement_keeps_previous_record():
