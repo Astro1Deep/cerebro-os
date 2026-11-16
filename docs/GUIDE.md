@@ -98,3 +98,13 @@ Use `GET /api/system/status` in Jarvis for the advertised library inventory. Sel
 ## 6. Update or restore
 
 Install each beta in its own directory, then copy only the deliberate settings you need. Stop the old foreground services before launching the new version. Keep the old directory and its local state until you have opened both services, tested a short generation and checked your MIDI and sample library workflow. To roll back, stop the new services and restart the previous installation.
+
+### Prepare a vector-memory candidate
+
+Inspect a source database without modifying it or creating a candidate:
+
+```text
+python -m cerebro_core.memory_migration --source SQLITE_PATH --destination NEW_DIRECTORY --kind memory
+```
+
+Use `--kind web-approved` for approved web documents only. Add `--apply` to build a separate candidate. It requires a local Ollama bge-m3 model with an identifiable digest. The source is read through a read-only SQLite transaction; the destination must not contain the source or be inside its directory. A changed source snapshot or model digest blocks resumption and requires a new candidate. The snapshot hash and model contract are stored without activating or replacing existing indexes. A stopped run can be repeated with the same source and model. Review the candidate before activation; this tool never activates it.
