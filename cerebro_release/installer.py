@@ -48,6 +48,7 @@ TREE_FILES: Final[tuple[str, ...]] = (
     "cerebro_core/local_endpoint.py",
     "cerebro_core/mayordomo_review.py",
     "cerebro_core/persistent_memory.py",
+    "cerebro_core/memory_migration.py",
     "cerebro_core/profiles.py",
     "cerebro_core/skills.py",
     "cerebro_core/status.py",
