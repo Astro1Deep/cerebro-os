@@ -98,3 +98,13 @@ Consulta `GET /api/system/status` en Jarvis para ver el inventario anunciado. Se
 ## 6. Actualizar o volver a la versión anterior
 
 Instala cada beta en su propia carpeta y copia solo los ajustes que necesites. Detén los servicios antiguos antes de arrancar la versión nueva. Conserva la instalación y sus datos hasta probar ambas interfaces, una generación corta y tus flujos MIDI y de bibliotecas. Para volver atrás, cierra los servicios nuevos y arranca la instalación anterior.
+
+### Preparar una candidata de memoria vectorial
+
+Para examinar una base sin modificarla ni crear una candidata:
+
+```text
+python -m cerebro_core.memory_migration --source RUTA_SQLITE --destination DIRECTORIO_NUEVO --kind memory
+```
+
+Para documentos web, usa `--kind web-approved`: solo selecciona los aprobados. Para construir la candidata separada añade `--apply`. Necesita Ollama local y bge-m3 instalados con digest identificable. El origen se lee en una transacción SQLite de solo lectura; el destino no puede contener el origen ni estar dentro de su carpeta. Si cambian el contenido de origen o el digest durante la reanudación, se rechaza y hay que utilizar una candidata nueva. Se guardan el hash de la instantánea y el contrato del modelo, sin activar ni reemplazar índices anteriores. Una ejecución interrumpida puede repetirse con la misma fuente y modelo. La candidata debe revisarse antes de cualquier activación, que esta herramienta no realiza.
