@@ -1,4 +1,5 @@
 import sqlite3
+from contextlib import closing
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -8,7 +9,7 @@ from cerebro_core.vector_engine import VectorEngine
 
 
 def create_source(path):
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute('CREATE TABLE memories (id TEXT PRIMARY KEY, text TEXT, source TEXT, created_at REAL)')
         db.executemany('INSERT INTO memories VALUES (?,?,?,?)', [('1','Uno de prueba','explicit_user',1.0),('2','Dos de prueba','explicit_user',2.0)])
 
@@ -34,11 +35,11 @@ def test_interrupted_candidate_resumes_and_source_changes_are_rejected():
         with patch('cerebro_core.memory_migration._ollama_embedding_identity', return_value='verified-A'), patch('cerebro_core.vector_engine._ollama_embedding_identity', return_value='verified-A'), patch.object(VectorEngine, 'get_embedding', return_value=v):
             with patch.object(VectorEngine, 'upsert', interrupted):
                 with pytest.raises(MigrationError): migrate(source, target, 'memory', apply=True)
-            with sqlite3.connect(source) as db:
+            with closing(sqlite3.connect(source)) as db, db:
                 db.execute("UPDATE memories SET text='changed' WHERE id='1'")
             with pytest.raises(MigrationError, match='changed'):
                 migrate(source, target, 'memory', apply=True)
-            with sqlite3.connect(source) as db:
+            with closing(sqlite3.connect(source)) as db, db:
                 db.execute("UPDATE memories SET text='Uno de prueba' WHERE id='1'")
             result = migrate(source, target, 'memory', apply=True)
             assert result['candidate_records'] == 2 and not result['activated']
@@ -91,7 +92,7 @@ with patch('cerebro_core.memory_migration._ollama_embedding_identity', return_va
 def test_approved_web_only_migrates_and_candidate_is_not_activated():
     with tempfile.TemporaryDirectory() as base:
         source = Path(base) / 'source' / 'web.db'; source.parent.mkdir()
-        with sqlite3.connect(source) as db:
+        with closing(sqlite3.connect(source)) as db, db:
             db.execute('CREATE TABLE documents (id TEXT, text TEXT, url TEXT, title TEXT, approved_at REAL, status TEXT)')
             db.executemany('INSERT INTO documents VALUES (?,?,?,?,?,?)', [('a','Approved content','https://example.com','Approved',1,'approved'), ('b','Pending content','https://example.com','Pending',None,'pending')])
         report = migrate(source, Path(base) / 'candidate', 'web-approved')
