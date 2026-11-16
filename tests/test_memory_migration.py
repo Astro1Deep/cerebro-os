@@ -97,3 +97,17 @@ def test_approved_web_only_migrates_and_candidate_is_not_activated():
             db.executemany('INSERT INTO documents VALUES (?,?,?,?,?,?)', [('a','Approved content','https://example.com','Approved',1,'approved'), ('b','Pending content','https://example.com','Pending',None,'pending')])
         report = migrate(source, Path(base) / 'candidate', 'web-approved')
         assert report['source_records'] == 1 and not report['activated']
+
+
+def test_candidate_lock_prevents_concurrent_writer_then_can_resume():
+    with tempfile.TemporaryDirectory() as base:
+        source = Path(base) / 'source' / 'memory.db'; source.parent.mkdir(); create_source(source)
+        target = Path(base) / 'candidate'
+        with patch('cerebro_core.memory_migration._ollama_embedding_identity', return_value='verified-A'), patch('cerebro_core.vector_engine._ollama_embedding_identity', return_value='verified-A'), patch.object(VectorEngine, 'get_embedding', return_value=[1.] + [0.] * 1023):
+            assert migrate(source, target, 'memory', apply=True)['candidate_records'] == 2
+            with closing(sqlite3.connect(target / 'migration.sqlite3')) as lock:
+                lock.execute('BEGIN IMMEDIATE')
+                with pytest.raises(sqlite3.OperationalError, match='locked'):
+                    migrate(source, target, 'memory', apply=True)
+                lock.rollback()
+            assert migrate(source, target, 'memory', apply=True)['candidate_records'] == 2
